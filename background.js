@@ -5,7 +5,7 @@
 import { searchAllHistory } from "./lib.js";
 import { collectMatches } from "./match.js";
 import { loadSettings, sanitize } from "./settings.js";
-import { removeSiteData, planSiteData, hasPermission, removalPhrase, dataPhrase, countSites } from "./site-data.js";
+import { removeSiteData, portOrigins, planSiteData, hasPermission, removalPhrase, dataPhrase, countSites } from "./site-data.js";
 import { handleUpdateAlarm, registerUpdateAlarm, syncBadge } from "./updates.js";
 import { dialogInPage, spongeSplashInPage } from "./injected-ui.js";
 
@@ -283,7 +283,7 @@ async function performPurge(matches, plan, tabId) {
   let done = { cookies: false, cache: false, storage: false };
   let dataError = "";
   try {
-    done = (await removeSiteData(plan.hosts, plan.types, plan.cookieHosts)).removed;
+    done = (await removeSiteData(plan.hosts, plan.types, plan.cookieHosts, portOrigins(urls))).removed;
   } catch (e) {
     console.error("Site Scrub: removing site data failed", e);
     dataError = ` ${capitalize(dataPhrase(plan.types))} could not be removed.`;

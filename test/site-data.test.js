@@ -25,7 +25,7 @@ const fake = { removeCalls: [], requestCalls: [], containsResult: true, requestR
   },
 };
 
-const { originsFor, ensurePermission, hasPermission, removeSiteData, planSiteData, removalPhrase, dataPhrase, countSites } = await import("../site-data.js");
+const { originsFor, portOrigins, ensurePermission, hasPermission, removeSiteData, planSiteData, removalPhrase, dataPhrase, countSites } = await import("../site-data.js");
 
 const OFF = { cookies: false, cache: false, storage: false };
 
@@ -212,4 +212,23 @@ test("countSites counts registrable domains, not hostnames", () => {
   assert.equal(countSites(["news.bbc.co.uk", "www.bbc.co.uk"]), 1);
   assert.equal(countSites(["127.0.0.1", "localhost"]), 0, "hosts without a registrable domain are skipped");
   assert.equal(countSites([]), 0);
+});
+
+test("portOrigins keeps only explicit non-default ports", () => {
+  assert.deepEqual(
+    portOrigins(["http://localhost:3000/a", "https://a.com/x", "https://a.com:443/x", "https://a.com:8443/y", "http://localhost:3000/b", "chrome://x", "junk"]),
+    ["http://localhost:3000", "https://a.com:8443"]
+  );
+});
+
+test("removeSiteData adds port origins to cache and storage, not to the cookie-only call", async () => {
+  await removeSiteData(["a.com", "b.a.com"], { cookies: true, cache: true, storage: false }, ["a.com"], ["https://b.a.com:8443"]);
+  const [cookieCall, restCall] = fake.removeCalls;
+  assert.deepEqual(cookieCall[0].origins, ["https://a.com", "http://a.com"]);
+  assert.ok(restCall[0].origins.includes("https://b.a.com:8443"));
+});
+
+test("removeSiteData adds port origins when every host gets every type", async () => {
+  await removeSiteData(["a.com"], { cookies: true, cache: true, storage: true }, ["a.com"], ["http://a.com:8080"]);
+  assert.ok(fake.removeCalls[0][0].origins.includes("http://a.com:8080"));
 });
