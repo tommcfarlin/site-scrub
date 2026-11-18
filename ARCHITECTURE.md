@@ -33,7 +33,7 @@ History is grouped by registrable domain: the public suffix plus one label. `new
 
 The user picks domains, not hostnames. A picked domain covers every subdomain under it.
 
-**Keep.** The `kept` setting lists hostnames to protect. A kept host protects itself and all hosts under it. Keep always wins over the domain switch. `isScrubbed` applies this rule for both the scrub and the counts in settings.
+**Keep.** The `kept` setting lists hostnames to protect. A kept host protects itself and all hosts under it. Keep always wins over the domain switch. `isScrubbed` in `match.js` applies this rule for the scrub. `isKept` and `domainView` in `options-model.js` apply the same rule for the counts in settings.
 
 ## Key design decision: the in-page injection model
 
@@ -65,9 +65,15 @@ page can't auto-confirm), and it fails closed. But a page can still remove the
 host node (which simply cancels). The scope of a purge is never page-controlled
 — it comes from the saved selection in the worker.
 
-## Data flow (one scan per action)
+## Data flow (one scan for the confirm, one re-check after it)
 
-A toolbar click reads history once (`searchAllHistory`) and reuses that array for first-run defaults, matching (`collectMatches`), counts, and the confirm text. Deletion runs in bounded batches (`deleteInChunks`) so a large scrub does not fire thousands of concurrent `deleteUrl` calls.
+A toolbar click reads history once (`searchAllHistory`) and reuses that array for matching (`collectMatches`), counts, and the confirm text. The first-run defaults come from `settings.js` (an absent `domains` key), not from history.
+
+**The confirm is binding.** The confirm records what it showed: the number of history items, the data types it named, and the `domains` and `kept` it was built from (in memory for the in-page dialog, in the `pendingPurge:<notificationId>` session key for the notification). After Scrub, `recheck` reads history and settings again. It matches only domains that were confirmed and are still on, and honors Keep entries from both. If the item count or the data types differ from the confirm, nothing is deleted and a notification says "Something changed while you were deciding. Click the sponge again to review." If nothing matches any more, it says "You have no sites to scrub." So a scrub never removes more, or other kinds of data, than the user agreed to.
+
+The notification's pending record is written before the notification is created (with an id chosen in advance), so an instant Scrub click finds it. Each notification has its own session key, so records never overwrite each other.
+
+Deletion runs in bounded batches (`deleteInChunks`) so a large scrub does not fire thousands of concurrent `deleteUrl` calls.
 
 ## Permissions (least privilege)
 
@@ -101,13 +107,16 @@ Nothing downloads or installs code. The banner links to the download page, and t
 - **"Items" = distinct URLs per hostname**, not per-visit rows as shown in
   `brave://history`. Consistent internally; a modeling choice.
 - **Matching is by registrable domain.** Turning on `facebook.com` scrubs `m.facebook.com` too. Use Keep to protect a subdomain.
-- **Mid-purge history changes** are tolerated (`deleteUrl` is idempotent), so the
-  reported count can slightly exceed what was actually present.
+- **History that changes during the deletion itself** (after the re-check) is
+  tolerated (`deleteUrl` is idempotent), so the reported count can slightly
+  exceed what was actually present. Changes while the confirm is open abort the scrub.
+- **Sites in messages are registrable domains** (`countSites`), the same unit as
+  the settings page: `facebook.com` and `m.facebook.com` are one site.
 
 ## Testing
 
 - **Unit** (`test/*.test.js`): hostnames, public suffix lookup, matching and grouping with Keep, settings storage and sanitizing, site data planning, version compare, the update check, the settings view logic, the packaging rules, and the manifest (`manifest.test.js`: the fixed key gives the expected id).
-- **Integration** (`integration.test.js`): the worker flow against a fake `chrome`: scrub scope, cancel, empty selection, no match, first-run defaults, the notification fallback, partial failure, and the re-entrancy guard.
+- **Integration** (`integration.test.js`): the worker flow against a fake `chrome`: scrub scope, cancel, empty selection, no match, first-run defaults, the notification fallback, partial failure, the re-entrancy guard, and the re-check after the confirm (new history, a new Keep, a changed permission or data type, a domain turned off, one pending key per notification).
 - **End-to-end** (`e2e/`, Playwright): the settings page in real Chromium with the extension loaded and history seeded through the service worker. One test builds the zip, unpacks it, loads the unpacked copy, and opens the settings page.
 - **Manual**: browser-bound behavior (real injection, notifications, overlay, keyboard and screen-reader use) per the checklist in `README.md`.
 

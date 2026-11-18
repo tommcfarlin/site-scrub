@@ -24,14 +24,9 @@
  * @property {number} [autofocusIndex]  Which button gets initial focus (default 0).
  */
 
-// A single, parameterized modal used for both confirm and info dialogs.
-// opts = {
-//   title, message,
-//   buttons: [{ label, value, destructive?, primary?, requireTrusted? }],
-//   dismissValue,        // resolved on Escape / overlay click
-//   autofocusIndex = 0,  // which button gets initial focus
-// }
-// Resolves with the chosen button's `value` (or `dismissValue` if dismissed).
+// A single, parameterized modal used for both confirm and info dialogs (see
+// DialogOptions). Resolves with the chosen button's `value` (or `dismissValue`
+// if dismissed).
 /**
  * @param {DialogOptions} opts
  * @returns {Promise<boolean>}

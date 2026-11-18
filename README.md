@@ -14,7 +14,7 @@ A Brave and Chrome (Manifest V3) extension that scrubs the sites you pick from y
 
 ## Install from the zip
 
-1. Download `site-scrub-<version>.zip` from the GitHub release page.
+1. Download `site-scrub-<version>.zip` from the Site Scrub page on pressware.co (<https://pressware.co/extensions/site-scrub/>). The same zip is also on the GitHub release page.
 2. Unzip it. Keep the folder somewhere permanent. The browser reads the extension from that folder every time it starts.
 3. Open `brave://extensions` (or `chrome://extensions`).
 4. Turn on **Developer mode** (top-right switch).
@@ -26,7 +26,7 @@ A Brave and Chrome (Manifest V3) extension that scrubs the sites you pick from y
 
 When the banner or the toolbar dot appears:
 
-1. Download the new zip from the GitHub release page.
+1. Download the new zip from the Site Scrub page on pressware.co (the banner links to it). The same zip is also on the GitHub release page.
 2. Unzip it over the old folder, or into a new folder.
 3. Open `brave://extensions`. If you used the old folder, click the reload button on Site Scrub. If you used a new folder, click **Load unpacked** and choose the new folder. It replaces the old copy. Then you can delete the old folder.
 

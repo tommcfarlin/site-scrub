@@ -12,10 +12,17 @@ Nothing in this repository publishes anything by itself. Every step below is don
 5. Set `version` to `<version>` in `manifest.json` and in `package.json`.
 6. Run `npm run package`. It writes `dist/site-scrub-<version>.zip`. It stops with an error if a file that `manifest.json` or `options.html` names is missing from the zip, or if a shipped file imports a root file that does not ship.
 7. Merge the release branch to `master`.
-8. Tag the merge commit `v<version>`.
-9. Create a GitHub release for the tag. Attach the zip.
-10. In the pressware.co repository, set `extensions/site-scrub/version.json` to `{"version":"<version>"}`. This file is what makes installed copies show the update banner. Deploy it.
-11. Update the Site Scrub pages in the pressware.co repository.
+8. Make sure the version file is served, with the header that lets the extension read it:
+
+   ```sh
+   curl -sI https://pressware.co/extensions/site-scrub/version.json
+   ```
+
+   The status must be `200` and the response must carry an `Access-Control-Allow-Origin` header. Without that header, installed copies never see an update.
+9. Tag the merge commit `v<version>`.
+10. Create a GitHub release for the tag. Attach the zip.
+11. In the pressware.co repository, set `extensions/site-scrub/version.json` to `{"version":"<version>"}`. This file is what makes installed copies show the update banner. Deploy it.
+12. Update the Site Scrub pages in the pressware.co repository.
 
 ## Chrome Web Store
 
