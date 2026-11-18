@@ -43,7 +43,14 @@ function makeChrome() {
     },
     storage: {
       local: {
-        get: async (/** @type {any} */ key) => ({ [key]: state.storageLocal[key] }),
+        get: async (/** @type {any} */ key) => {
+          /** @type {Record<string, any>} */
+          const out = {};
+          for (const k of Array.isArray(key) ? key : [key]) {
+            if (k in state.storageLocal) out[k] = state.storageLocal[k];
+          }
+          return out;
+        },
         set: async (/** @type {any} */ obj) => { Object.assign(state.storageLocal, obj); },
       },
       session: {
@@ -103,7 +110,7 @@ test("confirmed purge on a normal page deletes exactly the selected scope", asyn
     { url: "https://m.facebook.com/2" },
     { url: "https://example.com/3" },
   ];
-  state.storageLocal.selected = ["facebook.com", "m.facebook.com"];
+  state.storageLocal.domains = ["facebook.com"];
   config.executeScript = async () => [{ result: true }]; // confirm = Scrub (and sponge)
 
   await onClicked({ id: 1 });
@@ -115,9 +122,65 @@ test("confirmed purge on a normal page deletes exactly the selected scope", asyn
   assert.equal(state.openedOptions, 0);
 });
 
+test("scope by domain: facebook.com covers m.facebook.com", async () => {
+  state.historyItems = [
+    { url: "https://facebook.com/1" },
+    { url: "https://m.facebook.com/2" },
+    { url: "https://example.com/3" },
+  ];
+  state.storageLocal.domains = ["facebook.com"];
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.deleted.sort(), [
+    "https://facebook.com/1",
+    "https://m.facebook.com/2",
+  ]);
+});
+
+test("kept host survives and the dialog count excludes it", async () => {
+  state.historyItems = [
+    { url: "https://facebook.com/1" },
+    { url: "https://work.facebook.com/2" },
+  ];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.kept = ["work.facebook.com"];
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+  const dialog = state.injected[0].args[0];
+  assert.match(dialog.message, /remove 1 item from 1 site/);
+});
+
+test("notification fallback stores domains and kept; Scrub deletes the same set", async () => {
+  state.historyItems = [
+    { url: "https://facebook.com/1" },
+    { url: "https://m.facebook.com/2" },
+    { url: "https://work.facebook.com/3" },
+  ];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.kept = ["work.facebook.com"];
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.storageSession.pendingPurge["n0"], {
+    domains: ["facebook.com"],
+    kept: ["work.facebook.com"],
+  });
+  assert.match(state.notifications[0].opts.message, /remove 2 items from 2 sites/);
+
+  await onNotifButton("n0", 0);
+
+  assert.deepEqual(state.deleted.sort(), ["https://facebook.com/1", "https://m.facebook.com/2"]);
+});
+
 test("cancel on the confirm deletes nothing", async () => {
   state.historyItems = [{ url: "https://facebook.com/1" }];
-  state.storageLocal.selected = ["facebook.com"];
+  state.storageLocal.domains = ["facebook.com"];
   config.executeScript = async () => [{ result: false }]; // Cancel
 
   await onClicked({ id: 1 });
@@ -125,9 +188,9 @@ test("cancel on the confirm deletes nothing", async () => {
   assert.deepEqual(state.deleted, []);
 });
 
-test("empty selection opens options and deletes nothing", async () => {
+test("empty domain list opens options and deletes nothing", async () => {
   state.historyItems = [{ url: "https://facebook.com/1" }];
-  state.storageLocal.selected = []; // explicitly nothing selected
+  state.storageLocal.domains = []; // explicitly nothing selected
 
   await onClicked({ id: 1 });
 
@@ -137,7 +200,7 @@ test("empty selection opens options and deletes nothing", async () => {
 
 test("selection with no matching history shows a dialog, deletes nothing", async () => {
   state.historyItems = [{ url: "https://example.com/1" }];
-  state.storageLocal.selected = ["reddit.com"];
+  state.storageLocal.domains = ["reddit.com"];
   config.executeScript = async () => [{ result: true }]; // info dialog acknowledged
 
   await onClicked({ id: 1 });
@@ -146,13 +209,13 @@ test("selection with no matching history shows a dialog, deletes nothing", async
   assert.equal(state.injected.length, 1); // the info dialog was shown
 });
 
-test("first-ever click (no saved selection) uses pre-checked defaults", async () => {
+test("first-ever click (no stored settings) scrubs the five default domains", async () => {
   state.historyItems = [
     { url: "https://www.reddit.com/r/a" },
     { url: "https://x.com/home" },
     { url: "https://example.com/keep" }, // not a target → must survive
   ];
-  // no state.storageLocal.selected → defaults kick in
+  // no stored settings → the five default domains apply
   config.executeScript = async () => [{ result: true }];
 
   await onClicked({ id: 1 });
@@ -165,7 +228,7 @@ test("first-ever click (no saved selection) uses pre-checked defaults", async ()
 
 test("internal page falls back to a durable notification confirm", async () => {
   state.historyItems = [{ url: "https://facebook.com/1" }];
-  state.storageLocal.selected = ["facebook.com"];
+  state.storageLocal.domains = ["facebook.com"];
   config.executeScript = async () => { throw new Error("cannot inject on internal page"); };
 
   await onClicked({ id: 1 });
@@ -176,7 +239,7 @@ test("internal page falls back to a durable notification confirm", async () => {
   // Pending purge persisted to session storage, keyed by notification id.
   const pending = state.storageSession.pendingPurge;
   assert.ok(pending && pending["n0"]);
-  assert.deepEqual(pending["n0"], ["facebook.com"]);
+  assert.deepEqual(pending["n0"], { domains: ["facebook.com"], kept: [] });
 
   // User clicks "Scrub" (button index 0) — handled by the durable top-level listener.
   await onNotifButton("n0", 0);
@@ -187,7 +250,7 @@ test("internal page falls back to a durable notification confirm", async () => {
 
 test("notification 'Cancel' (button index 1) deletes nothing", async () => {
   state.historyItems = [{ url: "https://facebook.com/1" }];
-  state.storageLocal.selected = ["facebook.com"];
+  state.storageLocal.domains = ["facebook.com"];
   config.executeScript = async () => { throw new Error("internal page"); };
 
   await onClicked({ id: 1 });
@@ -201,7 +264,7 @@ test("partial deletion failure is tolerated and reported", async () => {
     { url: "https://facebook.com/1" },
     { url: "https://facebook.com/2" },
   ];
-  state.storageLocal.selected = ["facebook.com"];
+  state.storageLocal.domains = ["facebook.com"];
   config.executeScript = async () => { throw new Error("internal page"); }; // force notification path
   config.deleteUrlRejectUrls = new Set(["https://facebook.com/2"]);
 
@@ -218,7 +281,7 @@ test("partial deletion failure is tolerated and reported", async () => {
 
 test("re-entrancy guard ignores a second click while one is mid-confirm", async () => {
   state.historyItems = [{ url: "https://facebook.com/1" }];
-  state.storageLocal.selected = ["facebook.com"];
+  state.storageLocal.domains = ["facebook.com"];
 
   // Make the first confirm injection hang until we release it.
   /** @type {(() => void) | undefined} */

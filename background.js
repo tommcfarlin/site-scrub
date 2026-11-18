@@ -2,20 +2,19 @@
 // Site Scrub service worker: handles the toolbar click, confirms, deletes, and
 // triggers the 🧽 indicator. Injected page UI lives in injected-ui.js.
 
-import {
-  hostnameFromUrl,
-  searchAllHistory,
-  collectMatches,
-  isPreChecked,
-} from "./lib.js";
+import { searchAllHistory } from "./lib.js";
+import { collectMatches } from "./match.js";
+import { loadSettings } from "./settings.js";
 import { dialogInPage, spongeSplashInPage } from "./injected-ui.js";
 
 const ICON = "icons/icon128.png";
 
 // storage.session key holding purges awaiting a notification-button decision,
-// as { [notificationId]: hostnames[] }. Persisted (not in-memory) so the
+// as { [notificationId]: { domains, kept } }. Persisted (not in-memory) so the
 // decision survives service-worker eviction while the notification is open.
 const PENDING_KEY = "pendingPurge";
+
+/** @typedef {{ domains: string[], kept: string[] }} PendingPurge */
 
 // ---- dialog definitions --------------------------------------------------
 
@@ -49,30 +48,6 @@ function infoOpts(message) {
     autofocusIndex: 0,
     buttons: [{ label: "OK", value: true, primary: true }],
   };
-}
-
-// ---- selection ----------------------------------------------------------
-
-// The hostnames the user has chosen to purge. If they have never opened the
-// options page, fall back to the pre-checked defaults derived from the history
-// items already fetched by the caller (no extra scan). Stored values are
-// treated as untrusted: only strings survive the read.
-/**
- * @param {{ url?: string }[]} items
- * @returns {Promise<Set<string>>}
- */
-async function getSelectedHostnames(items) {
-  const { selected } = await chrome.storage.local.get("selected");
-  if (Array.isArray(selected)) {
-    return new Set(selected.filter((h) => typeof h === "string"));
-  }
-
-  const defaults = new Set();
-  for (const item of items) {
-    const host = hostnameFromUrl(item.url);
-    if (host && isPreChecked(host)) defaults.add(host);
-  }
-  return defaults;
 }
 
 // ---- injection helper ----------------------------------------------------
@@ -109,11 +84,11 @@ function notify(title, message) {
 // session storage. The decision is handled by the top-level listeners below,
 // so it survives a service-worker restart while the notification is open.
 /**
- * @param {string[]} hostnames
+ * @param {PendingPurge} pending
  * @param {number} count
  * @param {number} sites
  */
-async function requestNotificationConfirm(hostnames, count, sites) {
+async function requestNotificationConfirm(pending, count, sites) {
   const id = await new Promise((res) =>
     chrome.notifications.create(
       {
@@ -128,23 +103,23 @@ async function requestNotificationConfirm(hostnames, count, sites) {
     )
   );
 
-  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, string[]> | undefined }} */ (
+  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, PendingPurge> | undefined }} */ (
     await chrome.storage.session.get(PENDING_KEY)
   );
-  store[id] = hostnames;
+  store[id] = pending;
   await chrome.storage.session.set({ [PENDING_KEY]: store });
 }
 
-/** @param {string} id @returns {Promise<string[] | undefined>} */
+/** @param {string} id @returns {Promise<PendingPurge | undefined>} */
 async function takePending(id) {
-  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, string[]> | undefined }} */ (
+  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, PendingPurge> | undefined }} */ (
     await chrome.storage.session.get(PENDING_KEY)
   );
   if (!(id in store)) return undefined;
-  const hostnames = store[id];
+  const pending = store[id];
   delete store[id];
   await chrome.storage.session.set({ [PENDING_KEY]: store });
-  return hostnames;
+  return pending;
 }
 
 // ---- purge ---------------------------------------------------------------
@@ -194,12 +169,16 @@ async function performPurge(urls, sites, tabId) {
 
 chrome.notifications.onButtonClicked.addListener(async (id, buttonIndex) => {
   try {
-    const hostnames = await takePending(id);
-    if (hostnames === undefined) return;
+    const pending = await takePending(id);
+    if (pending === undefined) return;
     chrome.notifications.clear(id);
     if (buttonIndex !== 0) return; // 0 = Scrub, 1 = Cancel
 
-    const matches = collectMatches(await searchAllHistory(), new Set(hostnames));
+    const matches = collectMatches(
+      await searchAllHistory(),
+      new Set(Array.isArray(pending.domains) ? pending.domains : []),
+      new Set(Array.isArray(pending.kept) ? pending.kept : [])
+    );
     if (matches.length === 0) return;
     const sites = new Set(matches.map((m) => m.host)).size;
     await performPurge(matches.map((m) => m.url), sites, null); // internal page → notification
@@ -223,15 +202,17 @@ let busy = false;
 /** @param {chrome.tabs.Tab} tab */
 async function handleClick(tab) {
   const items = await searchAllHistory(); // single scan, reused below
-  const selected = await getSelectedHostnames(items);
+  const settings = await loadSettings();
+  const domains = new Set(settings.domains);
+  const kept = new Set(settings.kept);
 
-  if (selected.size === 0) {
-    notify("🧽 Site Scrub", "No sites selected yet. Opening settings…");
+  if (domains.size === 0) {
+    notify("🧽 Site Scrub", "No sites to scrub yet. Opening settings…");
     chrome.runtime.openOptionsPage();
     return;
   }
 
-  const matches = collectMatches(items, selected);
+  const matches = collectMatches(items, domains, kept);
   if (matches.length === 0) {
     const msg = "You have no sites to scrub.";
     let shown = false;
@@ -255,7 +236,7 @@ async function handleClick(tab) {
 
   // Fallback for internal pages: a notification confirm resolved by the
   // durable top-level handlers.
-  await requestNotificationConfirm([...selected], urls.length, sites);
+  await requestNotificationConfirm({ domains: [...domains], kept: [...kept] }, urls.length, sites);
 }
 
 chrome.action.onClicked.addListener(async (tab) => {
