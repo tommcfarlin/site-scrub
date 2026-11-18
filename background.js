@@ -6,6 +6,7 @@ import { searchAllHistory } from "./lib.js";
 import { collectMatches } from "./match.js";
 import { loadSettings, sanitize } from "./settings.js";
 import { removeSiteData, planSiteData, hasPermission, removalPhrase, dataPhrase } from "./site-data.js";
+import { handleUpdateAlarm, registerUpdateAlarm, syncBadge } from "./updates.js";
 import { dialogInPage, spongeSplashInPage } from "./injected-ui.js";
 
 const ICON = "icons/icon128.png";
@@ -330,3 +331,24 @@ chrome.action.onClicked.addListener(async (tab) => {
     busy = false;
   }
 });
+
+// ---- update check (top-level so listeners survive worker restarts) --------
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  handleUpdateAlarm(alarm).catch((e) => console.error("Site Scrub: update check failed", e));
+});
+
+// Keep the badge in step with the settings (the switch, a new stored version).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !("updateCheck" in changes || "latestVersion" in changes)) return;
+  syncBadge().catch((e) => console.error("Site Scrub: badge update failed", e));
+});
+
+/** Set up the daily alarm and refresh the badge (e.g. after installing a newer version). */
+function startUpdates() {
+  registerUpdateAlarm().catch((e) => console.error("Site Scrub: alarm setup failed", e));
+  syncBadge().catch((e) => console.error("Site Scrub: badge update failed", e));
+}
+
+chrome.runtime.onInstalled.addListener(startUpdates);
+chrome.runtime.onStartup.addListener(startUpdates);

@@ -7,6 +7,7 @@ import {
   domainView,
   summaryText,
   matchesQuery,
+  showUpdateBanner,
 } from "../options-model.js";
 
 /** @type {import("../match.js").DomainGroup} */
@@ -98,4 +99,20 @@ test("matchesQuery matches domain or any subdomain, trimmed and case-insensitive
   assert.equal(matchesQuery(fb, "apple"), false);
   assert.equal(matchesQuery(example, "support"), false);
   assert.equal(matchesQuery(apple, "support"), true);
+});
+
+test("showUpdateBanner shows only for a newer, undismissed version with updates on", () => {
+  const on = { updateCheck: true, latestVersion: "1.1.0", dismissedVersion: null };
+  assert.equal(showUpdateBanner(on, "1.0.0"), true);
+  assert.equal(showUpdateBanner({ ...on, latestVersion: "1.0.0" }, "1.0.0"), false);
+  assert.equal(showUpdateBanner({ ...on, latestVersion: "0.9.0" }, "1.0.0"), false);
+  assert.equal(showUpdateBanner({ ...on, latestVersion: null }, "1.0.0"), false);
+  assert.equal(showUpdateBanner({ ...on, updateCheck: false }, "1.0.0"), false);
+});
+
+test("showUpdateBanner stays hidden after Later until a still-newer version", () => {
+  const s = { updateCheck: true, latestVersion: "1.1.0", dismissedVersion: "1.1.0" };
+  assert.equal(showUpdateBanner(s, "1.0.0"), false);
+  assert.equal(showUpdateBanner({ ...s, latestVersion: "1.2.0" }, "1.0.0"), true);
+  assert.equal(showUpdateBanner({ ...s, dismissedVersion: "junk" }, "1.0.0"), true);
 });

@@ -4,6 +4,8 @@
 
 /** @typedef {import("./match.js").DomainGroup} DomainGroup */
 
+import { compareVersions, parseVersion } from "./version.js";
+
 /**
  * True when a Keep entry covers this host (the entry itself or any subdomain
  * of it). Same rule as isScrubbed in match.js.
@@ -74,4 +76,20 @@ export function matchesQuery(group, query) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return group.domain.includes(q) || group.subdomains.some((s) => s.hostname.includes(q));
+}
+
+/**
+ * Whether the update banner shows: updates are on, a newer version than the
+ * running one is stored, and the user has not pressed Later for it (or for a
+ * newer one).
+ * @param {{ updateCheck: boolean, latestVersion: string | null, dismissedVersion: string | null }} s
+ * @param {string} currentVersion
+ * @returns {boolean}
+ */
+export function showUpdateBanner(s, currentVersion) {
+  if (!s.updateCheck || s.latestVersion === null) return false;
+  if (compareVersions(s.latestVersion, currentVersion) !== 1) return false;
+  if (s.dismissedVersion !== null && parseVersion(s.dismissedVersion) !== null &&
+      compareVersions(s.latestVersion, s.dismissedVersion) !== 1) return false;
+  return true;
 }
