@@ -25,7 +25,7 @@ const fake = { removeCalls: [], requestCalls: [], containsResult: true, requestR
   },
 };
 
-const { originsFor, ensurePermission, removeSiteData, removalPhrase } = await import("../site-data.js");
+const { originsFor, ensurePermission, removeSiteData, removalPhrase, dataPhrase } = await import("../site-data.js");
 
 const OFF = { cookies: false, cache: false, storage: false };
 
@@ -121,4 +121,11 @@ test("removalPhrase names history plus the active types", () => {
     removalPhrase({ cookies: true, cache: true, storage: true }),
     "history, cookies, cached files, and site storage"
   );
+});
+
+test("dataPhrase names only the active data types", () => {
+  assert.equal(dataPhrase(OFF), "");
+  assert.equal(dataPhrase({ ...OFF, cache: true }), "cached files");
+  assert.equal(dataPhrase({ ...OFF, cache: true, storage: true }), "cached files and site storage");
+  assert.equal(dataPhrase({ cookies: true, cache: true, storage: true }), "cookies, cached files, and site storage");
 });

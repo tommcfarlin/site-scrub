@@ -5,6 +5,7 @@
 import { searchAllHistory } from "./lib.js";
 import { collectMatches } from "./match.js";
 import { loadSettings } from "./settings.js";
+import { removeSiteData, removalPhrase, dataPhrase } from "./site-data.js";
 import { dialogInPage, spongeSplashInPage } from "./injected-ui.js";
 
 const ICON = "icons/icon128.png";
@@ -15,18 +16,34 @@ const ICON = "icons/icon128.png";
 const PENDING_KEY = "pendingPurge";
 
 /** @typedef {{ domains: string[], kept: string[] }} PendingPurge */
+/** @typedef {import("./settings.js").Settings["alsoRemove"]} AlsoRemove */
+
+/** @param {number} n @param {string} word */
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// "Permanently remove history and cookies from 3 sites (12 history items)."
+// The count is always the number of history items.
+/**
+ * @param {number} count
+ * @param {number} sites
+ * @param {AlsoRemove} types
+ */
+function confirmMessage(count, sites, types) {
+  return `Permanently remove ${removalPhrase(types)} from ${plural(sites, "site")} (${plural(count, "history item")}).`;
+}
 
 // ---- dialog definitions --------------------------------------------------
 
 /**
  * @param {number} count
  * @param {number} sites
+ * @param {AlsoRemove} types
  * @returns {import("./injected-ui.js").DialogOptions}
  */
-function confirmOpts(count, sites) {
+function confirmOpts(count, sites, types) {
   return {
     title: "🧽 Scrub history?",
-    message: `Permanently remove ${count} item${count === 1 ? "" : "s"} from ${sites} site${sites === 1 ? "" : "s"}.`,
+    message: confirmMessage(count, sites, types),
     dismissValue: false,
     autofocusIndex: 0, // Cancel — confirming an irreversible action is opt-in
     buttons: [
@@ -87,15 +104,16 @@ function notify(title, message) {
  * @param {PendingPurge} pending
  * @param {number} count
  * @param {number} sites
+ * @param {AlsoRemove} types
  */
-async function requestNotificationConfirm(pending, count, sites) {
+async function requestNotificationConfirm(pending, count, sites, types) {
   const id = await new Promise((res) =>
     chrome.notifications.create(
       {
         type: "basic",
         iconUrl: ICON,
         title: "🧽 Scrub history?",
-        message: `Permanently remove ${count} item${count === 1 ? "" : "s"} from ${sites} site${sites === 1 ? "" : "s"}.`,
+        message: confirmMessage(count, sites, types),
         buttons: [{ title: "Scrub" }, { title: "Cancel" }],
         requireInteraction: true,
       },
@@ -143,20 +161,35 @@ async function deleteInChunks(urls, size = 200) {
   return removed;
 }
 
-// Delete every given URL, tolerating individual failures, then show the
-// indicator (sponge overlay when a tab is injectable, else a notification)
-// reporting the number actually removed. `sites` is passed in by the caller,
-// which already parsed the hostnames.
+// Delete every given URL, tolerating individual failures, then remove the
+// site data types turned on in settings (read now, at scrub time) for the
+// matched hostnames, then show the indicator (sponge overlay when a tab is
+// injectable, else a notification). The message reports the number of
+// history items actually removed; a site-data failure adds one sentence.
 /**
- * @param {string[]} urls
- * @param {number} sites
+ * @param {{ url: string, host: string }[]} matches
  * @param {number | null} tabId
  */
-async function performPurge(urls, sites, tabId) {
+async function performPurge(matches, tabId) {
+  const urls = matches.map((m) => m.url);
+  const hosts = [...new Set(matches.map((m) => m.host))];
   const removed = await deleteInChunks(urls);
   const failed = urls.length - removed;
-  const tail = failed ? ` (${failed} could not be removed)` : "";
-  const message = `Removed ${removed} item${removed === 1 ? "" : "s"} from ${sites} site${sites === 1 ? "" : "s"}.${tail}`;
+
+  let types = (await loadSettings()).alsoRemove;
+  let dataError = "";
+  try {
+    await removeSiteData(hosts, types);
+  } catch (e) {
+    console.error("Site Scrub: removing site data failed", e);
+    const data = dataPhrase(types);
+    dataError = ` ${data[0].toUpperCase()}${data.slice(1)} could not be removed.`;
+    types = { cookies: false, cache: false, storage: false };
+  }
+
+  const tail = failed ? `, ${failed} could not be removed` : "";
+  const message =
+    `Removed ${removalPhrase(types)} from ${plural(hosts.length, "site")} (${plural(removed, "history item")}${tail}).${dataError}`;
 
   // Sponge overlay (with a live-region announcement) when a tab is injectable,
   // else a system notification.
@@ -180,8 +213,7 @@ chrome.notifications.onButtonClicked.addListener(async (id, buttonIndex) => {
       new Set(Array.isArray(pending.kept) ? pending.kept : [])
     );
     if (matches.length === 0) return;
-    const sites = new Set(matches.map((m) => m.host)).size;
-    await performPurge(matches.map((m) => m.url), sites, null); // internal page → notification
+    await performPurge(matches, null); // internal page → notification
   } catch (e) {
     console.error("Site Scrub: notification purge failed", e);
     notify("🧽 Site Scrub", "Something went wrong completing the scrub.");
@@ -221,22 +253,23 @@ async function handleClick(tab) {
     return;
   }
 
-  const urls = matches.map((m) => m.url);
+  const count = matches.length;
   const sites = new Set(matches.map((m) => m.host)).size;
+  const types = settings.alsoRemove;
 
   // Prefer an in-page confirm. If it can be injected, it is authoritative for
   // this click (confirmed or cancelled) and we are done.
   if (tab?.id != null) {
-    const inj = await tryInject(tab.id, dialogInPage, [confirmOpts(urls.length, sites)]);
+    const inj = await tryInject(tab.id, dialogInPage, [confirmOpts(count, sites, types)]);
     if (inj.ok) {
-      if (inj.result === true) await performPurge(urls, sites, tab.id);
+      if (inj.result === true) await performPurge(matches, tab.id);
       return;
     }
   }
 
   // Fallback for internal pages: a notification confirm resolved by the
   // durable top-level handlers.
-  await requestNotificationConfirm({ domains: [...domains], kept: [...kept] }, urls.length, sites);
+  await requestNotificationConfirm({ domains: [...domains], kept: [...kept] }, count, sites, types);
 }
 
 chrome.action.onClicked.addListener(async (tab) => {

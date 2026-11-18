@@ -72,17 +72,45 @@ export async function removeSiteData(hostnames, types) {
 }
 
 /**
+ * Join words as "a", "a and b", or "a, b, and c".
+ * @param {string[]} parts
+ * @returns {string}
+ */
+function joinList(parts) {
+  if (parts.length <= 1) return parts.join("");
+  if (parts.length === 2) return parts.join(" and ");
+  return `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}`;
+}
+
+/**
+ * @param {AlsoRemove} types
+ * @returns {string[]}
+ */
+function dataParts(types) {
+  /** @type {string[]} */
+  const parts = [];
+  if (types.cookies) parts.push("cookies");
+  if (types.cache) parts.push("cached files");
+  if (types.storage) parts.push("site storage");
+  return parts;
+}
+
+/**
+ * The active data types in words, without history: "", "cookies",
+ * "cookies and cached files", and so on.
+ * @param {AlsoRemove} types
+ * @returns {string}
+ */
+export function dataPhrase(types) {
+  return joinList(dataParts(types));
+}
+
+/**
  * What a scrub removes, in words: "history", "history and cookies",
  * "history, cookies, and cached files", and so on.
  * @param {AlsoRemove} types
  * @returns {string}
  */
 export function removalPhrase(types) {
-  const parts = ["history"];
-  if (types.cookies) parts.push("cookies");
-  if (types.cache) parts.push("cached files");
-  if (types.storage) parts.push("site storage");
-  if (parts.length === 1) return parts[0];
-  if (parts.length === 2) return parts.join(" and ");
-  return `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}`;
+  return joinList(["history", ...dataParts(types)]);
 }

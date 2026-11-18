@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 function makeChrome() {
   /** @type {{ action: Function[], notifButton: Function[], notifClosed: Function[] }} */
   const listeners = { action: [], notifButton: [], notifClosed: [] };
-  /** @type {{ historyItems: { url: string }[], storageLocal: Record<string, any>, storageSession: Record<string, any>, deleted: string[], notifications: { id: string, opts: any }[], injected: any[], openedOptions: number, searchCount: number }} */
+  /** @type {{ historyItems: { url: string }[], storageLocal: Record<string, any>, storageSession: Record<string, any>, deleted: string[], notifications: { id: string, opts: any }[], injected: any[], openedOptions: number, searchCount: number, siteDataCalls: { options: any, dataToRemove: any, deletedSoFar: number }[] }} */
   const state = {
     historyItems: [],   // [{ url }]
     storageLocal: {},
@@ -24,11 +24,14 @@ function makeChrome() {
     injected: [],       // executeScript args
     openedOptions: 0,
     searchCount: 0,
+    siteDataCalls: [],  // chrome.browsingData.remove calls
   };
-  /** @type {{ executeScript: (arg?: any) => Promise<any>, deleteUrlRejectUrls: Set<string> }} */
+  /** @type {{ executeScript: (arg?: any) => Promise<any>, deleteUrlRejectUrls: Set<string>, browsingDataGranted: boolean, browsingDataReject: boolean }} */
   const config = {
     executeScript: async () => [{ result: undefined }],
     deleteUrlRejectUrls: new Set(),
+    browsingDataGranted: true,
+    browsingDataReject: false,
   };
 
   /** @type {any} */
@@ -73,6 +76,13 @@ function makeChrome() {
       onClosed: { addListener: (/** @type {any} */ fn) => listeners.notifClosed.push(fn) },
     },
     runtime: { openOptionsPage: () => { state.openedOptions++; } },
+    permissions: { contains: async () => config.browsingDataGranted },
+    browsingData: {
+      remove: async (/** @type {any} */ options, /** @type {any} */ dataToRemove) => {
+        state.siteDataCalls.push({ options, dataToRemove, deletedSoFar: state.deleted.length });
+        if (config.browsingDataReject) throw new Error("browsingData failed");
+      },
+    },
   };
 
   function reset() {
@@ -84,8 +94,11 @@ function makeChrome() {
     state.injected = [];
     state.openedOptions = 0;
     state.searchCount = 0;
+    state.siteDataCalls = [];
     config.executeScript = async () => [{ result: undefined }];
     config.deleteUrlRejectUrls = new Set();
+    config.browsingDataGranted = true;
+    config.browsingDataReject = false;
   }
 
   return { chrome, listeners, state, config, reset };
@@ -152,7 +165,7 @@ test("kept host survives and the dialog count excludes it", async () => {
 
   assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
   const dialog = state.injected[0].args[0];
-  assert.match(dialog.message, /remove 1 item from 1 site/);
+  assert.equal(dialog.message, "Permanently remove history from 1 site (1 history item).");
 });
 
 test("notification fallback stores domains and kept; Scrub deletes the same set", async () => {
@@ -171,7 +184,7 @@ test("notification fallback stores domains and kept; Scrub deletes the same set"
     domains: ["facebook.com"],
     kept: ["work.facebook.com"],
   });
-  assert.match(state.notifications[0].opts.message, /remove 2 items from 2 sites/);
+  assert.equal(state.notifications[0].opts.message, "Permanently remove history from 2 sites (2 history items).");
 
   await onNotifButton("n0", 0);
 
@@ -275,8 +288,7 @@ test("partial deletion failure is tolerated and reported", async () => {
   assert.deepEqual(state.deleted.sort(), ["https://facebook.com/1", "https://facebook.com/2"]);
   const last = state.notifications.at(-1);
   assert.ok(last);
-  assert.match(last.opts.message, /Removed 1 item/);
-  assert.match(last.opts.message, /could not be removed/);
+  assert.equal(last.opts.message, "Removed history from 1 site (1 history item, 1 could not be removed).");
 });
 
 test("re-entrancy guard ignores a second click while one is mid-confirm", async () => {
@@ -311,4 +323,93 @@ test("re-entrancy guard ignores a second click while one is mid-confirm", async 
 
   assert.equal(state.searchCount, 1, "still only one scan total");
   assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+});
+
+test("scrub removes site data for active types only", async () => {
+  state.historyItems = [
+    { url: "https://facebook.com/1" },
+    { url: "https://m.facebook.com/2" },
+    { url: "https://m.facebook.com/3" },
+    { url: "https://example.com/4" },
+  ];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: true };
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.equal(
+    state.injected[0].args[0].message,
+    "Permanently remove history, cookies, and site storage from 2 sites (3 history items)."
+  );
+  assert.equal(state.siteDataCalls.length, 1);
+  const [call] = state.siteDataCalls;
+  assert.deepEqual(call.options, {
+    origins: ["https://facebook.com", "http://facebook.com", "https://m.facebook.com", "http://m.facebook.com"],
+  });
+  assert.deepEqual(call.dataToRemove, {
+    cookies: true, localStorage: true, indexedDB: true, serviceWorkers: true, cacheStorage: true,
+  });
+  assert.equal(call.deletedSoFar, 3, "site data is removed after the history deletion");
+  assert.equal(
+    state.injected.at(-1).args[0],
+    "Removed history, cookies, and site storage from 2 sites (3 history items)."
+  );
+});
+
+test("no site data call when alsoRemove is all false", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: false, cache: false, storage: false };
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+  assert.equal(state.siteDataCalls.length, 0);
+});
+
+test("notification path removes site data read at scrub time", async () => {
+  state.historyItems = [{ url: "https://www.reddit.com/r/a" }];
+  state.storageLocal.domains = ["reddit.com"];
+  state.storageLocal.alsoRemove = { cookies: false, cache: true, storage: false };
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+  assert.equal(state.notifications[0].opts.message, "Permanently remove history and cached files from 1 site (1 history item).");
+
+  await onNotifButton("n0", 0);
+
+  assert.deepEqual(state.siteDataCalls.map((c) => c.dataToRemove), [{ cache: true }]);
+  assert.equal(state.notifications.at(-1)?.opts.message, "Removed history and cached files from 1 site (1 history item).");
+});
+
+test("missing browsingData permission still scrubs history", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: false };
+  config.browsingDataGranted = false;
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+  assert.equal(state.siteDataCalls.length, 0);
+});
+
+test("a site data failure still shows the result with a short extra sentence", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: false };
+  config.browsingDataReject = true;
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+  await onNotifButton("n0", 0);
+
+  assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+  assert.equal(
+    state.notifications.at(-1)?.opts.message,
+    "Removed history from 1 site (1 history item). Cookies could not be removed."
+  );
 });
