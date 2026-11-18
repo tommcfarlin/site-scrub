@@ -5,6 +5,11 @@
   "description": "One-click scrub of selected sites from your browsing history.",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "tsc --noEmit && node --test \"test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
   }
 }

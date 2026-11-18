@@ -1,3 +1,4 @@
+// @ts-check
 // Unit tests for the pure decision-logic in lib.js — the code that determines
 // which URLs get permanently deleted. Run with: npm test  (or: node --test)
 //
