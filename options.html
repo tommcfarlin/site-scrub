@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Site Scrub — Settings</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --text: #0f172a;
+        --muted: #64748b;
+        --border: #e2e8f0;
+        --accent: #2563eb;
+        --row-hover: #f1f5f9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f172a;
+          --card: #1e293b;
+          --text: #e2e8f0;
+          --muted: #94a3b8;
+          --border: #334155;
+          --accent: #3b82f6;
+          --row-hover: #273449;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 60px; }
+      header h1 { font-size: 26px; margin: 0 0 4px; }
+      header p { color: var(--muted); margin: 0 0 22px; }
+      .toolbar {
+        display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+        margin-bottom: 16px;
+      }
+      .toolbar .spacer { flex: 1; }
+      .summary { color: var(--muted); font-size: 13px; }
+      button {
+        font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px;
+        border: 1px solid var(--border); background: var(--card); color: var(--text);
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); }
+      .list {
+        background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+        overflow: hidden;
+      }
+      .row {
+        display: flex; align-items: center; gap: 12px;
+        padding: 11px 16px; border-bottom: 1px solid var(--border); cursor: pointer;
+      }
+      .row:last-child { border-bottom: none; }
+      .row:hover { background: var(--row-hover); }
+      .row input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+      .row .host { flex: 1; word-break: break-all; }
+      .row .count {
+        color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+        background: var(--bg); padding: 2px 8px; border-radius: 20px;
+      }
+      .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+      .loading { padding: 40px 20px; text-align: center; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>🧽 Site Scrub</h1>
+        <p>
+          Check the sites you want scrubbed from your history. Clicking the
+          toolbar 🧽 removes them (after a quick confirm).
+        </p>
+      </header>
+
+      <div class="toolbar">
+        <button id="rescan">Rescan history</button>
+        <button id="all">Select all</button>
+        <button id="none">Select none</button>
+        <div class="spacer"></div>
+        <span class="summary" id="summary" aria-live="polite"></span>
+      </div>
+
+      <div class="list" id="list" role="group" aria-label="Sites in your history">
+        <div class="loading" role="status">Combing your history…</div>
+      </div>
+    </div>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
