@@ -1,14 +1,18 @@
+// @ts-check
 // Site Scrub settings screen: combs history, lists hostnames alphabetically, and
 // persists the user's selection to chrome.storage.local.
 
 import { scanHistory, isPreChecked } from "./lib.js";
 
-const listEl = document.getElementById("list");
-const summaryEl = document.getElementById("summary");
+const listEl = /** @type {HTMLElement} */ (document.getElementById("list"));
+const summaryEl = /** @type {HTMLElement} */ (document.getElementById("summary"));
 
-let scan = []; // [{ hostname, count }]
-let selected = new Set(); // hostnames the user wants purged
-let saveTimer = null; // pending debounced write, if any
+/** @type {{ hostname: string, count: number }[]} */
+let scan = [];
+/** @type {Set<string>} Hostnames the user wants purged. */
+let selected = new Set();
+/** @type {ReturnType<typeof setTimeout> | null} Pending debounced write, if any. */
+let saveTimer = null;
 
 async function loadSelection() {
   const { selected: saved } = await chrome.storage.local.get("selected");
@@ -22,14 +26,14 @@ async function loadSelection() {
 }
 
 async function save() {
-  clearTimeout(saveTimer);
+  clearTimeout(saveTimer ?? undefined);
   saveTimer = null;
   await chrome.storage.local.set({ selected: [...selected] });
 }
 
 // Coalesce rapid checkbox toggles into a single write.
 function scheduleSave() {
-  clearTimeout(saveTimer);
+  clearTimeout(saveTimer ?? undefined);
   saveTimer = setTimeout(save, 250);
 }
 
@@ -78,7 +82,7 @@ function render() {
 
     const badge = document.createElement("span");
     badge.className = "count";
-    badge.textContent = count;
+    badge.textContent = String(count);
     badge.setAttribute("aria-label", `${count} item${count === 1 ? "" : "s"}`);
 
     row.append(cb, host, badge);
@@ -109,15 +113,15 @@ async function rescan() {
   }
 }
 
-document.getElementById("rescan").addEventListener("click", rescan);
+/** @type {HTMLElement} */ (document.getElementById("rescan")).addEventListener("click", rescan);
 
-document.getElementById("all").addEventListener("click", async () => {
+/** @type {HTMLElement} */ (document.getElementById("all")).addEventListener("click", async () => {
   selected = new Set(scan.map((e) => e.hostname));
   await save();
   render();
 });
 
-document.getElementById("none").addEventListener("click", async () => {
+/** @type {HTMLElement} */ (document.getElementById("none")).addEventListener("click", async () => {
   selected = new Set();
   await save();
   render();

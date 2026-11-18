@@ -1,3 +1,4 @@
+// @ts-check
 // Site Scrub service worker: handles the toolbar click, confirms, deletes, and
 // triggers the 🧽 indicator. Injected page UI lives in injected-ui.js.
 
@@ -18,6 +19,11 @@ const PENDING_KEY = "pendingPurge";
 
 // ---- dialog definitions --------------------------------------------------
 
+/**
+ * @param {number} count
+ * @param {number} sites
+ * @returns {import("./injected-ui.js").DialogOptions}
+ */
 function confirmOpts(count, sites) {
   return {
     title: "🧽 Scrub history?",
@@ -31,6 +37,10 @@ function confirmOpts(count, sites) {
   };
 }
 
+/**
+ * @param {string} message
+ * @returns {import("./injected-ui.js").DialogOptions}
+ */
 function infoOpts(message) {
   return {
     title: "🧽 Site Scrub",
@@ -47,6 +57,10 @@ function infoOpts(message) {
 // options page, fall back to the pre-checked defaults derived from the history
 // items already fetched by the caller (no extra scan). Stored values are
 // treated as untrusted: only strings survive the read.
+/**
+ * @param {{ url?: string }[]} items
+ * @returns {Promise<Set<string>>}
+ */
 async function getSelectedHostnames(items) {
   const { selected } = await chrome.storage.local.get("selected");
   if (Array.isArray(selected)) {
@@ -66,6 +80,12 @@ async function getSelectedHostnames(items) {
 // Try to run a function in the active tab. Returns { ok, result }. Injection
 // fails on internal pages (brave://, chrome://, the Web Store, PDF viewer),
 // which is expected — callers fall back to a notification.
+/**
+ * @param {number} tabId
+ * @param {(...args: any[]) => any} func
+ * @param {any[]} [args]
+ * @returns {Promise<{ ok: boolean, result: any }>}
+ */
 async function tryInject(tabId, func, args = []) {
   try {
     const [res] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
@@ -77,6 +97,10 @@ async function tryInject(tabId, func, args = []) {
 
 // ---- notifications -------------------------------------------------------
 
+/**
+ * @param {string} title
+ * @param {string} message
+ */
 function notify(title, message) {
   chrome.notifications.create({ type: "basic", iconUrl: ICON, title, message });
 }
@@ -84,6 +108,11 @@ function notify(title, message) {
 // Create the fallback confirm notification and record the pending purge in
 // session storage. The decision is handled by the top-level listeners below,
 // so it survives a service-worker restart while the notification is open.
+/**
+ * @param {string[]} hostnames
+ * @param {number} count
+ * @param {number} sites
+ */
 async function requestNotificationConfirm(hostnames, count, sites) {
   const id = await new Promise((res) =>
     chrome.notifications.create(
@@ -99,13 +128,18 @@ async function requestNotificationConfirm(hostnames, count, sites) {
     )
   );
 
-  const { [PENDING_KEY]: store = {} } = await chrome.storage.session.get(PENDING_KEY);
+  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, string[]> | undefined }} */ (
+    await chrome.storage.session.get(PENDING_KEY)
+  );
   store[id] = hostnames;
   await chrome.storage.session.set({ [PENDING_KEY]: store });
 }
 
+/** @param {string} id @returns {Promise<string[] | undefined>} */
 async function takePending(id) {
-  const { [PENDING_KEY]: store = {} } = await chrome.storage.session.get(PENDING_KEY);
+  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, string[]> | undefined }} */ (
+    await chrome.storage.session.get(PENDING_KEY)
+  );
   if (!(id in store)) return undefined;
   const hostnames = store[id];
   delete store[id];
@@ -117,6 +151,11 @@ async function takePending(id) {
 
 // Delete URLs in bounded batches so a large purge doesn't fire thousands of
 // history-DB writes at once. Returns the number actually removed.
+/**
+ * @param {string[]} urls
+ * @param {number} [size]
+ * @returns {Promise<number>}
+ */
 async function deleteInChunks(urls, size = 200) {
   let removed = 0;
   for (let i = 0; i < urls.length; i += size) {
@@ -133,6 +172,11 @@ async function deleteInChunks(urls, size = 200) {
 // indicator (sponge overlay when a tab is injectable, else a notification)
 // reporting the number actually removed. `sites` is passed in by the caller,
 // which already parsed the hostnames.
+/**
+ * @param {string[]} urls
+ * @param {number} sites
+ * @param {number | null} tabId
+ */
 async function performPurge(urls, sites, tabId) {
   const removed = await deleteInChunks(urls);
   const failed = urls.length - removed;
@@ -176,6 +220,7 @@ chrome.notifications.onClosed.addListener((id) => {
 // fine: the worst case (worker eviction resetting it) just re-allows a click.
 let busy = false;
 
+/** @param {chrome.tabs.Tab} tab */
 async function handleClick(tab) {
   const items = await searchAllHistory(); // single scan, reused below
   const selected = await getSelectedHostnames(items);

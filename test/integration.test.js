@@ -1,3 +1,4 @@
+// @ts-check
 // Integration tests for the service-worker orchestration in background.js.
 //
 // background.js registers its listeners against the global `chrome` at import
@@ -11,7 +12,9 @@ import assert from "node:assert/strict";
 // ---- programmable fake chrome -------------------------------------------
 
 function makeChrome() {
+  /** @type {{ action: Function[], notifButton: Function[], notifClosed: Function[] }} */
   const listeners = { action: [], notifButton: [], notifClosed: [] };
+  /** @type {{ historyItems: { url: string }[], storageLocal: Record<string, any>, storageSession: Record<string, any>, deleted: string[], notifications: { id: string, opts: any }[], injected: any[], openedOptions: number, searchCount: number }} */
   const state = {
     historyItems: [],   // [{ url }]
     storageLocal: {},
@@ -22,43 +25,45 @@ function makeChrome() {
     openedOptions: 0,
     searchCount: 0,
   };
+  /** @type {{ executeScript: (arg?: any) => Promise<any>, deleteUrlRejectUrls: Set<string> }} */
   const config = {
     executeScript: async () => [{ result: undefined }],
     deleteUrlRejectUrls: new Set(),
   };
 
+  /** @type {any} */
   const chrome = {
-    action: { onClicked: { addListener: (fn) => listeners.action.push(fn) } },
+    action: { onClicked: { addListener: (/** @type {any} */ fn) => listeners.action.push(fn) } },
     history: {
       search: async () => { state.searchCount++; return state.historyItems.slice(); },
-      deleteUrl: async ({ url }) => {
+      deleteUrl: async (/** @type {any} */ { url }) => {
         state.deleted.push(url);
         if (config.deleteUrlRejectUrls.has(url)) throw new Error("delete failed");
       },
     },
     storage: {
       local: {
-        get: async (key) => ({ [key]: state.storageLocal[key] }),
-        set: async (obj) => { Object.assign(state.storageLocal, obj); },
+        get: async (/** @type {any} */ key) => ({ [key]: state.storageLocal[key] }),
+        set: async (/** @type {any} */ obj) => { Object.assign(state.storageLocal, obj); },
       },
       session: {
-        get: async (key) => ({ [key]: state.storageSession[key] }),
-        set: async (obj) => { Object.assign(state.storageSession, obj); },
+        get: async (/** @type {any} */ key) => ({ [key]: state.storageSession[key] }),
+        set: async (/** @type {any} */ obj) => { Object.assign(state.storageSession, obj); },
       },
     },
     scripting: {
-      executeScript: async (arg) => { state.injected.push(arg); return config.executeScript(arg); },
+      executeScript: async (/** @type {any} */ arg) => { state.injected.push(arg); return config.executeScript(arg); },
     },
     notifications: {
-      create: (opts, cb) => {
+      create: (/** @type {any} */ opts, /** @type {any} */ cb) => {
         const id = "n" + state.notifications.length;
         state.notifications.push({ id, opts });
         if (cb) cb(id);
         return id;
       },
       clear: async () => {},
-      onButtonClicked: { addListener: (fn) => listeners.notifButton.push(fn) },
-      onClosed: { addListener: (fn) => listeners.notifClosed.push(fn) },
+      onButtonClicked: { addListener: (/** @type {any} */ fn) => listeners.notifButton.push(fn) },
+      onClosed: { addListener: (/** @type {any} */ fn) => listeners.notifClosed.push(fn) },
     },
     runtime: { openOptionsPage: () => { state.openedOptions++; } },
   };
@@ -80,6 +85,7 @@ function makeChrome() {
 }
 
 const mock = makeChrome();
+// @ts-ignore: installing the fake chrome global for background.js
 globalThis.chrome = mock.chrome;
 await import("../background.js"); // registers listeners against the fake chrome
 
@@ -205,6 +211,7 @@ test("partial deletion failure is tolerated and reported", async () => {
   // Both were attempted; the "Scrubbed" result notification reflects the failure.
   assert.deepEqual(state.deleted.sort(), ["https://facebook.com/1", "https://facebook.com/2"]);
   const last = state.notifications.at(-1);
+  assert.ok(last);
   assert.match(last.opts.message, /Removed 1 item/);
   assert.match(last.opts.message, /could not be removed/);
 });
@@ -214,6 +221,7 @@ test("re-entrancy guard ignores a second click while one is mid-confirm", async 
   state.storageLocal.selected = ["facebook.com"];
 
   // Make the first confirm injection hang until we release it.
+  /** @type {(() => void) | undefined} */
   let releaseConfirm;
   let gated = false;
   config.executeScript = async () => {
@@ -235,7 +243,7 @@ test("re-entrancy guard ignores a second click while one is mid-confirm", async 
 
   assert.equal(state.searchCount, 1, "second click must not scan");
 
-  releaseConfirm();
+  /** @type {() => void} */ (releaseConfirm)();
   await p1;
 
   assert.equal(state.searchCount, 1, "still only one scan total");

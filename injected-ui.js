@@ -1,9 +1,28 @@
+// @ts-check
 // Functions injected into the active tab via chrome.scripting.executeScript.
 //
 // IMPORTANT: executeScript serializes each function's SOURCE and runs it in the
 // page (isolated world). These functions must be fully self-contained — they
 // may use DOM/window and their own arguments, but must not reference anything
 // from this module's scope (imports, constants, other functions).
+
+/**
+ * @typedef {object} DialogButton
+ * @property {string} label
+ * @property {boolean} value
+ * @property {boolean} [destructive]
+ * @property {boolean} [primary]
+ * @property {boolean} [requireTrusted]
+ */
+
+/**
+ * @typedef {object} DialogOptions
+ * @property {string} title
+ * @property {string} message
+ * @property {DialogButton[]} buttons
+ * @property {boolean} dismissValue  Resolved on Escape / overlay click.
+ * @property {number} [autofocusIndex]  Which button gets initial focus (default 0).
+ */
 
 // A single, parameterized modal used for both confirm and info dialogs.
 // opts = {
@@ -13,6 +32,10 @@
 //   autofocusIndex = 0,  // which button gets initial focus
 // }
 // Resolves with the chosen button's `value` (or `dismissValue` if dismissed).
+/**
+ * @param {DialogOptions} opts
+ * @returns {Promise<boolean>}
+ */
 export function dialogInPage(opts) {
   return new Promise((resolve) => {
     const ID = "__wash_dialog__";
@@ -64,11 +87,13 @@ export function dialogInPage(opts) {
     overlay.setAttribute("aria-labelledby", titleEl.id);
     overlay.setAttribute("aria-describedby", bodyEl.id);
 
+    /** @param {boolean} value */
     const done = (value) => {
       host.remove();
       document.removeEventListener("keydown", onKey, true);
       resolve(value);
     };
+    /** @param {KeyboardEvent} e */
     const onKey = (e) => {
       if (e.key === "Escape") { e.preventDefault(); done(opts.dismissValue); }
     };
@@ -125,6 +150,7 @@ export function dialogInPage(opts) {
 // Transient 🧽 indicator, top-right, that fades out. `message` (optional) is
 // announced to assistive tech via a visually-hidden live region, since the
 // sponge itself is decorative.
+/** @param {string} [message] */
 export function spongeSplashInPage(message) {
   const ID = "__wash_sponge__";
   document.getElementById(ID)?.remove();

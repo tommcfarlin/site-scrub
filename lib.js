@@ -1,3 +1,4 @@
+// @ts-check
 // Shared helpers for Site Scrub. Imported as an ES module by both the service
 // worker and the options page.
 
@@ -15,9 +16,10 @@ export const TARGET_DOMAINS = [
 // Pull a lowercase hostname out of a URL. Returns null for anything that is
 // not a normal web page (chrome://, brave://, file://, extension pages, etc.)
 // since those never show up as scrubbable history items.
+/** @param {string | undefined} url @returns {string | null} */
 export function hostnameFromUrl(url) {
   try {
-    const u = new URL(url);
+    const u = new URL(/** @type {string} */ (url));
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
     return u.hostname.toLowerCase();
   } catch {
@@ -26,6 +28,7 @@ export function hostnameFromUrl(url) {
 }
 
 // True when a hostname is (or is a subdomain of) one of the target domains.
+/** @param {string} hostname @returns {boolean} */
 export function isPreChecked(hostname) {
   return TARGET_DOMAINS.some(
     (d) => hostname === d || hostname.endsWith("." + d)
@@ -35,6 +38,7 @@ export function isPreChecked(hostname) {
 // Read the entire available history in a single call. Callers derive both
 // per-hostname tallies and matching URLs from this one result set rather than
 // searching repeatedly.
+/** @returns {Promise<chrome.history.HistoryItem[]>} */
 export async function searchAllHistory() {
   return chrome.history.search({
     text: "",
@@ -45,6 +49,10 @@ export async function searchAllHistory() {
 
 // Tally distinct URLs per hostname from an already-fetched history result.
 // Returns an array of { hostname, count } sorted alphabetically by hostname.
+/**
+ * @param {{ url?: string }[]} items
+ * @returns {{ hostname: string, count: number }[]}
+ */
 export function tallyByHostname(items) {
   const counts = new Map();
   for (const item of items) {
@@ -61,16 +69,22 @@ export function tallyByHostname(items) {
 // From an already-fetched history result, collect { url, host } pairs whose
 // hostname is in the selected set. Returning the parsed host avoids re-parsing
 // the same URLs downstream.
+/**
+ * @param {{ url?: string }[]} items
+ * @param {Set<string>} selectedSet
+ * @returns {{ url: string, host: string }[]}
+ */
 export function collectMatches(items, selectedSet) {
   const matches = [];
   for (const item of items) {
     const host = hostnameFromUrl(item.url);
-    if (host && selectedSet.has(host)) matches.push({ url: item.url, host });
+    if (host && selectedSet.has(host)) matches.push({ url: /** @type {string} */ (item.url), host });
   }
   return matches;
 }
 
 // Convenience for the options page: one scan, tallied.
+/** @returns {Promise<{ hostname: string, count: number }[]>} */
 export async function scanHistory() {
   return tallyByHostname(await searchAllHistory());
 }
