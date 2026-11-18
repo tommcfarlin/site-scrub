@@ -6,7 +6,7 @@ This note records the design decisions behind 🧽 Site Scrub and the limits tha
 
 | File | Responsibility |
 |------|----------------|
-| `manifest.json` | MV3 manifest: permissions, optional `browsingData`, action (no popup), options page, service worker |
+| `manifest.json` | MV3 manifest: permissions, optional `browsingData`, action (no popup), options page, service worker, the fixed `key` (one extension id for every install), and `minimum_chrome_version` 102 (for `storage.session`). |
 | `background.js` | Service worker: toolbar click, confirm, delete, indicator, the notification fallback and its durable handlers, and the update-check listeners. |
 | `lib.js` | Hostname parsing (`hostnameFromUrl`) and the single history read (`searchAllHistory`). No `chrome.*` use at module load. |
 | `domains.js` | `registrableDomain`: the public suffix plus one label, using `psl-data.js`. |
@@ -84,6 +84,8 @@ A toolbar click reads history once (`searchAllHistory`) and reuses that array fo
 
 `updates.js` runs from a daily `chrome.alarms` alarm. It fetches `https://pressware.co/extensions/site-scrub/version.json`, which holds `{"version":"x.y.z"}`, with `cache: "no-store"` and `credentials: "omit"`. It sends no identifier. Any failure is silent. A newer version is saved as `latestVersion`. The toolbar badge and the settings banner both read it.
 
+**A fixed extension id.** A cross-origin fetch from the service worker sends `Origin: chrome-extension://<id>`. For an unpacked extension without a manifest `key`, Chrome makes the id from the path of the install folder, so each user would have a different id that stays the same every day: an identifier in the server logs. So `manifest.json` has a fixed `key` (a public key only; the private key was discarded, because unpacked and zip installs do not need it). Every install has the same id, `okelcjddfojjpngggcankijeagakaegf`. The daily request then shows only that shared id and the user's IP address, nothing that identifies the user. A side effect: settings stay when the user moves the folder, because they are stored under the id.
+
 The fetch needs no host permission. The service worker makes a plain cross-origin read, and the server allows it with an `Access-Control-Allow-Origin` header. If the server stops sending that header, the check fails silently and no update shows. The request carries no user data. When the user turns the check off, no request is made and the badge clears. The banner has a Later button, which saves `dismissedVersion` and hides the banner until a still newer version appears.
 
 Nothing downloads or installs code. The banner links to the download page, and the user replaces the folder by hand.
@@ -104,7 +106,7 @@ Nothing downloads or installs code. The banner links to the download page, and t
 
 ## Testing
 
-- **Unit** (`test/*.test.js`): hostnames, public suffix lookup, matching and grouping with Keep, settings storage and sanitizing, site data planning, version compare, the update check, the settings view logic, and the packaging rules.
+- **Unit** (`test/*.test.js`): hostnames, public suffix lookup, matching and grouping with Keep, settings storage and sanitizing, site data planning, version compare, the update check, the settings view logic, the packaging rules, and the manifest (`manifest.test.js`: the fixed key gives the expected id).
 - **Integration** (`integration.test.js`): the worker flow against a fake `chrome`: scrub scope, cancel, empty selection, no match, first-run defaults, the notification fallback, partial failure, and the re-entrancy guard.
 - **End-to-end** (`e2e/`, Playwright): the settings page in real Chromium with the extension loaded and history seeded through the service worker. One test builds the zip, unpacks it, loads the unpacked copy, and opens the settings page.
 - **Manual**: browser-bound behavior (real injection, notifications, overlay, keyboard and screen-reader use) per the checklist in `README.md`.

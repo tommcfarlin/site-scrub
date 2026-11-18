@@ -16,3 +16,7 @@ Nothing in this repository publishes anything by itself. Every step below is don
 9. Create a GitHub release for the tag. Attach the zip.
 10. In the pressware.co repository, set `extensions/site-scrub/version.json` to `{"version":"<version>"}`. This file is what makes installed copies show the update banner. Deploy it.
 11. Update the Site Scrub pages in the pressware.co repository.
+
+## Chrome Web Store
+
+`manifest.json` has a fixed `key`, so every unpacked install has the same extension id (see `ARCHITECTURE.md`). If a Chrome Web Store listing is made later, the store assigns its own key. Remove the `key` field from the manifest for that build.

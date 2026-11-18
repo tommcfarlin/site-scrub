@@ -160,6 +160,10 @@ test("dark scheme uses the dark ground color", async ({ openSettings }) => {
   expect(light).toBe("rgb(245, 245, 247)");
 });
 
+test("the extension id is fixed by the manifest key", async ({ extensionId }) => {
+  expect(extensionId).toBe("okelcjddfojjpngggcankijeagakaegf");
+});
+
 // ---- Advanced: also remove cookies, cache, and site storage ---------------
 
 /**
