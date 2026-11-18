@@ -5,7 +5,7 @@
 import { searchAllHistory } from "./lib.js";
 import { collectMatches } from "./match.js";
 import { loadSettings, sanitize } from "./settings.js";
-import { removeSiteData, planSiteData, hasPermission, removalPhrase, dataPhrase } from "./site-data.js";
+import { removeSiteData, planSiteData, hasPermission, removalPhrase, dataPhrase, countSites } from "./site-data.js";
 import { handleUpdateAlarm, registerUpdateAlarm, syncBadge } from "./updates.js";
 import { dialogInPage, spongeSplashInPage } from "./injected-ui.js";
 
@@ -50,13 +50,14 @@ function dataNotes(skipped, keptCookieSites) {
 }
 
 // "Permanently remove history and cookies from 3 sites (12 history items)."
-// The count is always the number of history items.
+// Sites are registrable domains (countSites); the count in brackets is always
+// the number of history items.
 /**
  * @param {number} count
  * @param {SiteDataPlan} plan
  */
 function confirmMessage(count, plan) {
-  return `Permanently remove ${removalPhrase(plan.types)} from ${plural(plan.hosts.length, "site")} ` +
+  return `Permanently remove ${removalPhrase(plan.types)} from ${plural(countSites(plan.hosts), "site")} ` +
     `(${plural(count, "history item")}).${dataNotes(plan.skipped, plan.keptCookieSites)}`;
 }
 
@@ -298,7 +299,7 @@ async function performPurge(matches, plan, tabId) {
 
   const tail = failed ? `, ${failed} could not be removed` : "";
   const message =
-    `Removed ${removalPhrase(done)} from ${plural(plan.hosts.length, "site")} (${plural(removed, "history item")}${tail}).` +
+    `Removed ${removalPhrase(done)} from ${plural(countSites(plan.hosts), "site")} (${plural(removed, "history item")}${tail}).` +
     `${dataError}${dataNotes(skipped, plan.keptCookieSites)}`;
 
   // Sponge overlay (with a live-region announcement) when a tab is injectable,

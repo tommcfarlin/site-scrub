@@ -233,7 +233,7 @@ test("notification fallback stores domains and kept; Scrub deletes the same set"
     count: 2,
     types: { cookies: false, cache: false, storage: false },
   });
-  assert.equal(state.notifications[0].opts.message, "Permanently remove history from 2 sites (2 history items).");
+  assert.equal(state.notifications[0].opts.message, "Permanently remove history from 1 site (2 history items).");
 
   await onNotifButton(confirmId(), 0);
 
@@ -605,7 +605,7 @@ test("scrub removes site data for active types only", async () => {
 
   assert.equal(
     state.injected[0].args[0].message,
-    "Permanently remove history, cookies, and site storage from 2 sites (3 history items)."
+    "Permanently remove history, cookies, and site storage from 1 site (3 history items)."
   );
   assert.equal(state.siteDataCalls.length, 1);
   const [call] = state.siteDataCalls;
@@ -618,7 +618,7 @@ test("scrub removes site data for active types only", async () => {
   assert.equal(call.deletedSoFar, 3, "site data is removed after the history deletion");
   assert.equal(
     state.injected.at(-1).args[0],
-    "Removed history, cookies, and site storage from 2 sites (3 history items)."
+    "Removed history, cookies, and site storage from 1 site (3 history items)."
   );
 });
 
@@ -705,7 +705,7 @@ test("kept subdomain: cookies are not removed for its domain, cache still is", a
 
   assert.equal(
     state.injected[0].args[0].message,
-    "Permanently remove history and cached files from 2 sites (2 history items). " +
+    "Permanently remove history and cached files from 1 site (2 history items). " +
       "Cookies are kept for 1 site with a kept subdomain."
   );
   assert.ok(state.siteDataCalls.every((c) => !c.dataToRemove.cookies), "no cookie removal for facebook hosts");
@@ -715,7 +715,7 @@ test("kept subdomain: cookies are not removed for its domain, cache still is", a
   ]]);
   assert.equal(
     state.injected.at(-1).args[0],
-    "Removed history and cached files from 2 sites (2 history items). Cookies are kept for 1 site with a kept subdomain."
+    "Removed history and cached files from 1 site (2 history items). Cookies are kept for 1 site with a kept subdomain."
   );
 });
 
@@ -754,11 +754,11 @@ test("no kept entry: cookies and cache are removed together", async () => {
   assert.deepEqual(state.siteDataCalls.map((c) => c.dataToRemove), [{ cookies: true, cache: true }]);
   assert.equal(
     state.injected[0].args[0].message,
-    "Permanently remove history, cookies, and cached files from 2 sites (2 history items)."
+    "Permanently remove history, cookies, and cached files from 1 site (2 history items)."
   );
   assert.equal(
     state.injected.at(-1).args[0],
-    "Removed history, cookies, and cached files from 2 sites (2 history items)."
+    "Removed history, cookies, and cached files from 1 site (2 history items)."
   );
 });
 
