@@ -40,6 +40,29 @@ export function originsFor(hostnames) {
 }
 
 /**
+ * Origins for history URLs that use a non-default port, such as
+ * `http://localhost:3000`. Cache and site storage are kept per port, so the
+ * plain https and http origins from `originsFor` do not reach them.
+ * @param {string[]} urls
+ * @returns {string[]}
+ */
+export function portOrigins(urls) {
+  /** @type {Set<string>} */
+  const out = new Set();
+  for (const url of urls) {
+    try {
+      const u = new URL(url);
+      if ((u.protocol === "http:" || u.protocol === "https:") && u.port !== "") {
+        out.add(`${u.protocol}//${u.hostname.replace(/\.+$/, "")}:${u.port}`);
+      }
+    } catch {
+      // Not a URL: nothing to add.
+    }
+  }
+  return [...out];
+}
+
+/**
  * Ask for the optional browsingData permission. Must run inside a user
  * gesture (a click handler). Resolves false when denied or when it fails.
  * @returns {Promise<boolean>}
@@ -132,10 +155,11 @@ function dataTypesFor(types) {
 /**
  * @param {string[]} hostnames
  * @param {chrome.browsingData.DataTypeSet} dataToRemove
+ * @param {string[]} [extraOrigins] Port origins to add (see `portOrigins`).
  * @returns {Promise<boolean>} true when a call was made
  */
-async function removeFor(hostnames, dataToRemove) {
-  const origins = originsFor(hostnames);
+async function removeFor(hostnames, dataToRemove, extraOrigins = []) {
+  const origins = [...originsFor(hostnames), ...extraOrigins];
   if (Object.keys(dataToRemove).length === 0 || origins.length === 0) return false;
   await chrome.browsingData.remove({ origins: /** @type {[string, ...string[]]} */ (origins) }, dataToRemove);
   return true;
@@ -150,9 +174,11 @@ async function removeFor(hostnames, dataToRemove) {
  * @param {string[]} hostnames
  * @param {AlsoRemove} types
  * @param {string[]} [cookieHosts]
+ * @param {string[]} [extraOrigins] Port origins for cache and storage. Cookies
+ *   ignore ports, so they never need these.
  * @returns {Promise<{ removed: AlsoRemove }>}
  */
-export async function removeSiteData(hostnames, types, cookieHosts = hostnames) {
+export async function removeSiteData(hostnames, types, cookieHosts = hostnames, extraOrigins = []) {
   const removed = none();
   if (!types.cookies && !types.cache && !types.storage) return { removed };
   if (hostnames.length === 0 || !(await hasPermission())) return { removed };
@@ -160,12 +186,12 @@ export async function removeSiteData(hostnames, types, cookieHosts = hostnames) 
   const cookieSet = new Set(cookieHosts);
   const sameHosts = cookieSet.size === new Set(hostnames).size && hostnames.every((h) => cookieSet.has(h));
   if (!types.cookies || sameHosts) {
-    if (await removeFor(hostnames, dataTypesFor(types))) Object.assign(removed, types);
+    if (await removeFor(hostnames, dataTypesFor(types), extraOrigins)) Object.assign(removed, types);
     return { removed };
   }
   if (await removeFor(cookieHosts, { cookies: true })) removed.cookies = true;
   const rest = { ...types, cookies: false };
-  if (await removeFor(hostnames, dataTypesFor(rest))) {
+  if (await removeFor(hostnames, dataTypesFor(rest), extraOrigins)) {
     removed.cache = rest.cache;
     removed.storage = rest.storage;
   }
