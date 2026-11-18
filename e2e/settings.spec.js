@@ -196,6 +196,8 @@ test("Advanced section is collapsed on load", async ({ openSettings }) => {
     await expect(sw).not.toBeChecked();
   }
   await expect(page.getByText("Signs you out of these sites.")).toBeVisible();
+  // Site storage can hold sign-in tokens, so its line warns about sign-out too.
+  await expect(page.getByText("Can sign you out of some sites.")).toBeVisible();
   await expect(page.getByText(
     "History is always removed. Your browser asks for permission the first time you turn one of these on."
   )).toBeVisible();

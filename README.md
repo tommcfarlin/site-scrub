@@ -9,7 +9,7 @@ A Brave and Chrome (Manifest V3) extension that scrubs the sites you pick from y
 - **Keep.** Open a row to see its subdomains. Use **Keep** on a subdomain to protect it. Keep wins over the domain switch, and a kept host also keeps everything under it.
 - **First-run defaults.** `facebook.com`, `reddit.com`, `linkedin.com`, `x.com`, and `twitter.com` start turned on.
 - **One-click scrub.** Click the 🧽 in the toolbar. A confirm box appears in the page. Press **Scrub** and the matching history is removed for good. A 🧽 fades in and out when it is done.
-- **Advanced options.** Open **Advanced** on the settings page to also remove cookies, cached files, and site storage for the scrubbed sites. History is always removed. Your browser asks for the extra permission the first time you turn one of these on. Cookies are skipped for a domain that has a kept subdomain, because the browser clears cookies for a whole domain at once.
+- **Advanced options.** Open **Advanced** on the settings page to also remove cookies, cached files, and site storage for the scrubbed sites. History is always removed. Removing cookies or site storage can sign you out of those sites. Your browser asks for the extra permission the first time you turn one of these on. Cookies are skipped for a domain that has a kept subdomain, because the browser clears cookies for a whole domain at once.
 - **Update check.** Once a day Site Scrub reads one version number from `pressware.co`. When a newer version exists, the toolbar icon shows a dot and the settings page shows a banner. Turn this off in **Advanced** → **Check for updates**.
 
 ## Install from the zip
