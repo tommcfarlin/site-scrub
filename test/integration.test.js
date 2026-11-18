@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 // ---- programmable fake chrome -------------------------------------------
 
 function makeChrome() {
-  /** @type {{ action: Function[], notifButton: Function[], notifClosed: Function[] }} */
-  const listeners = { action: [], notifButton: [], notifClosed: [] };
+  /** @type {{ action: Function[], notifButton: Function[], notifClosed: Function[], alarm: Function[], storageChanged: Function[], installed: Function[], startup: Function[] }} */
+  const listeners = { action: [], notifButton: [], notifClosed: [], alarm: [], storageChanged: [], installed: [], startup: [] };
   /** @type {{ historyItems: { url: string }[], storageLocal: Record<string, any>, storageSession: Record<string, any>, deleted: string[], notifications: { id: string, opts: any }[], injected: any[], openedOptions: number, searchCount: number, siteDataCalls: { options: any, dataToRemove: any, deletedSoFar: number }[] }} */
   const state = {
     historyItems: [],   // [{ url }]
@@ -36,7 +36,16 @@ function makeChrome() {
 
   /** @type {any} */
   const chrome = {
-    action: { onClicked: { addListener: (/** @type {any} */ fn) => listeners.action.push(fn) } },
+    action: {
+      onClicked: { addListener: (/** @type {any} */ fn) => listeners.action.push(fn) },
+      setBadgeText: async () => {},
+      setBadgeBackgroundColor: async () => {},
+    },
+    alarms: {
+      onAlarm: { addListener: (/** @type {any} */ fn) => listeners.alarm.push(fn) },
+      get: async () => undefined,
+      create: () => {},
+    },
     history: {
       search: async () => { state.searchCount++; return state.historyItems.slice(); },
       deleteUrl: async (/** @type {any} */ { url }) => {
@@ -56,6 +65,7 @@ function makeChrome() {
         },
         set: async (/** @type {any} */ obj) => { Object.assign(state.storageLocal, obj); },
       },
+      onChanged: { addListener: (/** @type {any} */ fn) => listeners.storageChanged.push(fn) },
       session: {
         get: async (/** @type {any} */ key) => ({ [key]: state.storageSession[key] }),
         set: async (/** @type {any} */ obj) => { Object.assign(state.storageSession, obj); },
@@ -75,7 +85,12 @@ function makeChrome() {
       onButtonClicked: { addListener: (/** @type {any} */ fn) => listeners.notifButton.push(fn) },
       onClosed: { addListener: (/** @type {any} */ fn) => listeners.notifClosed.push(fn) },
     },
-    runtime: { openOptionsPage: () => { state.openedOptions++; } },
+    runtime: {
+      openOptionsPage: () => { state.openedOptions++; },
+      getManifest: () => ({ version: "1.0.0" }),
+      onInstalled: { addListener: (/** @type {any} */ fn) => listeners.installed.push(fn) },
+      onStartup: { addListener: (/** @type {any} */ fn) => listeners.startup.push(fn) },
+    },
     permissions: { contains: async () => config.browsingDataGranted },
     browsingData: {
       remove: async (/** @type {any} */ options, /** @type {any} */ dataToRemove) => {
@@ -114,6 +129,13 @@ const onNotifButton = mock.listeners.notifButton[0];
 const { state, config } = mock;
 
 beforeEach(() => mock.reset());
+
+test("update listeners are registered at the top level", () => {
+  assert.equal(mock.listeners.alarm.length, 1);
+  assert.equal(mock.listeners.installed.length, 1);
+  assert.equal(mock.listeners.startup.length, 1);
+  assert.equal(mock.listeners.storageChanged.length, 1);
+});
 
 // ---- tests ---------------------------------------------------------------
 

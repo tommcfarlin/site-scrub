@@ -37,6 +37,7 @@ test("sanitize(undefined) returns the defaults", () => {
     alsoRemove: { cookies: false, cache: false, storage: false },
     updateCheck: true,
     latestVersion: null,
+    dismissedVersion: null,
   });
   assert.deepEqual(DEFAULT_DOMAINS, ["facebook.com", "reddit.com", "linkedin.com", "x.com", "twitter.com"]);
 });
@@ -63,6 +64,17 @@ test("sanitize accepts only booleans for flags", () => {
   assert.equal(sanitize({ alsoRemove: "x" }).alsoRemove.storage, false);
   assert.equal(sanitize({ updateCheck: 0 }).updateCheck, true);
   assert.equal(sanitize({ updateCheck: false }).updateCheck, false);
+});
+
+test("sanitize accepts dismissedVersion only as string or null", () => {
+  assert.equal(sanitize({ dismissedVersion: "1.2.3" }).dismissedVersion, "1.2.3");
+  assert.equal(sanitize({ dismissedVersion: 5 }).dismissedVersion, null);
+  assert.equal(sanitize(undefined).dismissedVersion, null);
+});
+
+test("saveSettings stores dismissedVersion", async () => {
+  await saveSettings({ dismissedVersion: "2.0.0" });
+  assert.deepEqual(store, { dismissedVersion: "2.0.0" });
 });
 
 test("sanitize accepts latestVersion only as string or null", () => {

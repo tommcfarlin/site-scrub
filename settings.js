@@ -8,13 +8,14 @@
  *   kept: string[],
  *   alsoRemove: { cookies: boolean, cache: boolean, storage: boolean },
  *   updateCheck: boolean,
- *   latestVersion: string | null
+ *   latestVersion: string | null,
+ *   dismissedVersion: string | null
  * }} Settings
  */
 
 export const DEFAULT_DOMAINS = ["facebook.com", "reddit.com", "linkedin.com", "x.com", "twitter.com"];
 
-const KEYS = ["domains", "kept", "alsoRemove", "updateCheck", "latestVersion"];
+const KEYS = ["domains", "kept", "alsoRemove", "updateCheck", "latestVersion", "dismissedVersion"];
 
 /**
  * Trim, lowercase, drop empties and duplicates (first-seen order kept).
@@ -53,6 +54,7 @@ export function sanitize(raw) {
     },
     updateCheck: typeof r.updateCheck === "boolean" ? r.updateCheck : true,
     latestVersion: typeof r.latestVersion === "string" ? r.latestVersion : null,
+    dismissedVersion: typeof r.dismissedVersion === "string" ? r.dismissedVersion : null,
   };
 }
 

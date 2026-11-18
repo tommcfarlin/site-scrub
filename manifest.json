@@ -3,7 +3,7 @@
   "name": "Site Scrub",
   "version": "1.0.0",
   "description": "One-click scrub of selected sites from your browsing history. 🧽",
-  "permissions": ["history", "storage", "scripting", "activeTab", "notifications"],
+  "permissions": ["history", "storage", "scripting", "activeTab", "notifications", "alarms"],
   "optional_permissions": ["browsingData"],
   "background": {
     "service_worker": "background.js",
