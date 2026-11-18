@@ -1,0 +1,18 @@
+Site Scrub 🧽 - how to install
+
+1. Keep the unzipped folder somewhere permanent. The browser reads the extension from this folder every time it starts.
+2. Open brave://extensions. In Chrome, open chrome://extensions.
+3. Turn on Developer mode. This switch is at the top right.
+4. Click Load unpacked and choose the folder.
+5. Click the puzzle-piece menu and pin the 🧽.
+6. Right-click the 🧽, choose Options, and pick the sites to scrub.
+
+Use it
+
+Click the 🧽. Press Scrub in the box. Scrubbing is permanent.
+
+Update
+
+Download the new zip. Unzip it over the old folder. Click the reload button on Site Scrub in brave://extensions.
+
+The full guide is at https://github.com/tommcfarlin/site-scrub

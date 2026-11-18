@@ -3,93 +3,97 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Site Scrub — Settings</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-        --bg: #f8fafc;
-        --card: #ffffff;
-        --text: #0f172a;
-        --muted: #64748b;
-        --border: #e2e8f0;
-        --accent: #2563eb;
-        --row-hover: #f1f5f9;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #0f172a;
-          --card: #1e293b;
-          --text: #e2e8f0;
-          --muted: #94a3b8;
-          --border: #334155;
-          --accent: #3b82f6;
-          --row-hover: #273449;
-        }
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      }
-      .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 60px; }
-      header h1 { font-size: 26px; margin: 0 0 4px; }
-      header p { color: var(--muted); margin: 0 0 22px; }
-      .toolbar {
-        display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
-        margin-bottom: 16px;
-      }
-      .toolbar .spacer { flex: 1; }
-      .summary { color: var(--muted); font-size: 13px; }
-      button {
-        font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px;
-        border: 1px solid var(--border); background: var(--card); color: var(--text);
-        cursor: pointer;
-      }
-      button:hover { border-color: var(--accent); }
-      .list {
-        background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-        overflow: hidden;
-      }
-      .row {
-        display: flex; align-items: center; gap: 12px;
-        padding: 11px 16px; border-bottom: 1px solid var(--border); cursor: pointer;
-      }
-      .row:last-child { border-bottom: none; }
-      .row:hover { background: var(--row-hover); }
-      .row input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
-      .row .host { flex: 1; word-break: break-all; }
-      .row .count {
-        color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
-        background: var(--bg); padding: 2px 8px; border-radius: 20px;
-      }
-      .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
-      .loading { padding: 40px 20px; text-align: center; color: var(--muted); }
-    </style>
+    <title>Site Scrub settings</title>
+    <link rel="stylesheet" href="options.css" />
   </head>
   <body>
-    <div class="wrap">
+    <main class="wrap">
+      <div class="banner" id="update-banner" role="status" hidden>
+        <div class="grow">
+          <div class="t" id="update-title"></div>
+          <div class="s">Download it, replace your Site Scrub folder, then reload the extension.</div>
+        </div>
+        <a class="btn" href="https://pressware.co/extensions/site-scrub/" target="_blank" rel="noopener noreferrer">Download</a>
+        <button class="quiet" id="update-later" type="button">Later</button>
+      </div>
+
       <header>
-        <h1>🧽 Site Scrub</h1>
-        <p>
-          Check the sites you want scrubbed from your history. Clicking the
-          toolbar 🧽 removes them (after a quick confirm).
-        </p>
+        <div class="tile" aria-hidden="true">🧽</div>
+        <h1>Site Scrub</h1>
+        <p class="lede">Pick the sites to forget. Then click the 🧽 in your toolbar.</p>
       </header>
 
-      <div class="toolbar">
-        <button id="rescan">Rescan history</button>
-        <button id="all">Select all</button>
-        <button id="none">Select none</button>
-        <div class="spacer"></div>
-        <span class="summary" id="summary" aria-live="polite"></span>
+      <div class="tabs" role="tablist" aria-label="Settings">
+        <button class="tab" id="tab-sites" type="button" role="tab" aria-selected="true" aria-controls="sites" tabindex="0">Sites</button>
+        <button class="tab" id="tab-advanced" type="button" role="tab" aria-selected="false" aria-controls="advanced" tabindex="-1">Advanced</button>
       </div>
 
-      <div class="list" id="list" role="group" aria-label="Sites in your history">
-        <div class="loading" role="status">Combing your history…</div>
+      <div id="sites" role="tabpanel" aria-labelledby="tab-sites">
+      <div class="lbl">
+        <b id="sites-label">Sites to scrub</b>
+        <span id="summary" aria-live="polite"></span>
       </div>
-    </div>
+
+      <section class="card" aria-labelledby="sites-label">
+        <div class="search">
+          <label class="field">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="search" type="search" placeholder="Search sites" aria-label="Search sites" autocomplete="off" />
+          </label>
+        </div>
+        <ul class="list" id="list"></ul>
+        <div class="empty" id="status" role="status">Combing your history…</div>
+      </section>
+
+      <p class="note">Turning on a site also scrubs everything under it, like m.facebook.com. Use Keep to protect one part you still need.</p>
+
+      </div>
+
+      <div id="advanced" role="tabpanel" aria-labelledby="tab-advanced" hidden>
+        <div class="lbl"><b id="also-label">Also remove</b><span></span></div>
+        <section class="card" aria-labelledby="also-label">
+          <div class="row flush">
+            <div class="grow">
+              <div class="t">Cookies</div>
+              <div class="s">Signs you out of these sites.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" data-type="cookies" aria-label="Also remove cookies" />
+          </div>
+          <div class="row">
+            <div class="grow">
+              <div class="t">Cached files</div>
+              <div class="s">Images and pages saved to load faster.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" data-type="cache" aria-label="Also remove cached files" />
+          </div>
+          <div class="row">
+            <div class="grow">
+              <div class="t">Site storage</div>
+              <div class="s">Can sign you out of some sites.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" data-type="storage" aria-label="Also remove site storage" />
+          </div>
+        </section>
+        <p class="note">History is always removed. Your browser asks for permission the first time you turn one of these on.</p>
+
+        <div class="lbl"><b id="updates-label">Updates</b><span></span></div>
+        <section class="card" aria-labelledby="updates-label">
+          <div class="row flush">
+            <div class="grow">
+              <div class="t">Check for updates</div>
+              <div class="s">Once a day, Site Scrub reads one version number from pressware.co. Nothing about you is sent.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" id="update-check" aria-label="Check for updates" />
+          </div>
+        </section>
+      </div>
+
+      <footer class="foot">
+        <div>Scrubbing is permanent. Site Scrub always asks first.</div>
+        <div>Your history never leaves this browser.</div>
+        <div class="ver" id="version">Site Scrub</div>
+      </footer>
+    </main>
     <script type="module" src="options.js"></script>
   </body>
 </html>
