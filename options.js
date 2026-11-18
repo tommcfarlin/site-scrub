@@ -304,6 +304,20 @@ updateCheckEl.addEventListener("change", () => {
   renderBanner();
 });
 
+// Keep the banner current while the page is open (a daily check can land now).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if ("latestVersion" in changes) {
+    const v = changes.latestVersion.newValue;
+    latestVersion = typeof v === "string" ? v : null;
+  }
+  if ("dismissedVersion" in changes) {
+    const v = changes.dismissedVersion.newValue;
+    dismissedVersion = typeof v === "string" ? v : null;
+  }
+  if ("latestVersion" in changes || "dismissedVersion" in changes) renderBanner();
+});
+
 versionEl.textContent = `Site Scrub ${currentVersion}`;
 
 // Initial load.

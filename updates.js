@@ -4,6 +4,7 @@
 
 import { compareVersions, parseVersion } from "./version.js";
 import { loadSettings, saveSettings } from "./settings.js";
+import { showUpdateBanner } from "./options-model.js";
 
 export const VERSION_URL = "https://pressware.co/extensions/site-scrub/version.json";
 export const ALARM_NAME = "site-scrub-update-check";
@@ -34,10 +35,9 @@ export async function checkForUpdate(currentVersion, fetchFn) {
  * @returns {Promise<void>}
  */
 export async function syncBadge() {
-  const { updateCheck, latestVersion } = await loadSettings();
-  const newer = updateCheck && latestVersion !== null &&
-    compareVersions(latestVersion, chrome.runtime.getManifest().version) === 1;
-  if (newer) {
+  const settings = await loadSettings();
+  // Same rule as the settings-page banner, so Later clears the dot too.
+  if (showUpdateBanner(settings, chrome.runtime.getManifest().version)) {
     await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR });
     await chrome.action.setBadgeText({ text: BADGE_TEXT });
   } else {

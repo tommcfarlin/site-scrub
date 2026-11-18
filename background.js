@@ -400,7 +400,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Keep the badge in step with the settings (the switch, a new stored version).
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !("updateCheck" in changes || "latestVersion" in changes)) return;
+  if (area !== "local" || !("updateCheck" in changes || "latestVersion" in changes || "dismissedVersion" in changes)) return;
   syncBadge().catch((e) => console.error("Site Scrub: badge update failed", e));
 });
 

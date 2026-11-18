@@ -34,7 +34,7 @@ let existing = new Set();
   },
 };
 
-const { checkForUpdate, handleUpdateAlarm, registerUpdateAlarm, ALARM_NAME, VERSION_URL } =
+const { checkForUpdate, syncBadge, handleUpdateAlarm, registerUpdateAlarm, ALARM_NAME, VERSION_URL } =
   await import("../updates.js");
 
 /** @param {any} body @param {{ ok?: boolean }} [opts] */
@@ -129,4 +129,13 @@ test("registerUpdateAlarm creates a daily alarm once", async () => {
   existing.add(ALARM_NAME);
   await registerUpdateAlarm();
   assert.equal(created.length, 1);
+});
+
+test("syncBadge: Later clears the dot, and a newer version brings it back", async () => {
+  store = { latestVersion: "1.1.0", dismissedVersion: "1.1.0" };
+  await syncBadge();
+  assert.equal(badges.at(-1)?.text, "");
+  store = { latestVersion: "1.2.0", dismissedVersion: "1.1.0" };
+  await syncBadge();
+  assert.notEqual(badges.at(-1)?.text, "");
 });

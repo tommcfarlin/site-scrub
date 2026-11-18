@@ -27,8 +27,6 @@ test("hostnameFromUrl: IP literals and punycode are preserved as-is", () => {
   assert.equal(hostnameFromUrl("http://xn--80ak6aa92e.com/"), "xn--80ak6aa92e.com");
 });
 
-test("hostnameFromUrl: trailing dot is kept (documents intentional behavior)", () => {
-  // A trailing-dot host will NOT match a selected 'facebook.com'. Documented so
-  // a future change to this behavior is a conscious decision.
-  assert.equal(hostnameFromUrl("http://facebook.com./"), "facebook.com.");
+test("hostnameFromUrl: drops a trailing dot", () => {
+  assert.equal(hostnameFromUrl("https://facebook.com./feed"), "facebook.com");
 });

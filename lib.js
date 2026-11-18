@@ -10,7 +10,8 @@ export function hostnameFromUrl(url) {
   try {
     const u = new URL(/** @type {string} */ (url));
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    return u.hostname.toLowerCase();
+    // "example.com." is the same site as "example.com", so drop the trailing dot.
+    return u.hostname.toLowerCase().replace(/\.+$/, "");
   } catch {
     return null;
   }

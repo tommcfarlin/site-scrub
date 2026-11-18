@@ -30,13 +30,13 @@ When the banner or the toolbar dot appears:
 2. Unzip it over the old folder, or into a new folder.
 3. Open `brave://extensions`. If you used the old folder, click the reload button on Site Scrub. If you used a new folder, click **Load unpacked** and choose the new folder. It replaces the old copy. Then you can delete the old folder.
 
-Your settings stay. The browser keeps them apart from the extension folder, under the extension id. Every copy of Site Scrub has the same id (the manifest sets it), so the settings stay even when you move the folder. Do not click **Remove** on Site Scrub: that deletes its settings.
+Your settings stay. The browser keeps them apart from the extension folder, under the extension id. Every copy of Site Scrub has the same id (the manifest sets it), so the settings stay even when you move the folder. This was tested in Chromium. You can check it in Brave by moving the folder and choosing **Load unpacked** again. Do not click **Remove** on Site Scrub: that deletes its settings.
 
 ## Privacy
 
 - Site Scrub stores your settings in `chrome.storage.local`, on your computer: the sites you picked, your Keep list, the Advanced switches, the update-check switch, and the newest version number it saw.
 - Your history never leaves the browser.
-- The only network request is the daily update check. It is a plain read of `https://pressware.co/extensions/site-scrub/version.json`. It carries no cookies and no identifier, and it sends nothing about you. The browser names the extension id in the request, and that id is the same for every copy of Site Scrub, so it does not identify you. Like any web request, the version check shows your IP address to the web host. If you turn the check off, Site Scrub makes no network request at all.
+- The only network request is the daily update check. It is a plain read of `https://pressware.co/extensions/site-scrub/version.json`. The request has no cookies and nothing that names you. The browser adds the extension id, and every copy of Site Scrub has the same id. Like any web request, the version check shows your IP address to the web host. If you turn the check off, Site Scrub makes no network request at all.
 - Site Scrub asks for no access to the sites you visit. It draws on the page you are on only when you click the icon.
 
 ## Development
