@@ -17,7 +17,9 @@ const statusEl = /** @type {HTMLElement} */ (document.getElementById("status"));
 const summaryEl = /** @type {HTMLElement} */ (document.getElementById("summary"));
 const searchEl = /** @type {HTMLInputElement} */ (document.getElementById("search"));
 const versionEl = /** @type {HTMLElement} */ (document.getElementById("version"));
-const advancedToggle = /** @type {HTMLButtonElement} */ (document.getElementById("advanced-toggle"));
+const tabSites = /** @type {HTMLButtonElement} */ (document.getElementById("tab-sites"));
+const tabAdvanced = /** @type {HTMLButtonElement} */ (document.getElementById("tab-advanced"));
+const sitesEl = /** @type {HTMLElement} */ (document.getElementById("sites"));
 const advancedEl = /** @type {HTMLElement} */ (document.getElementById("advanced"));
 const alsoSwitches = /** @type {NodeListOf<HTMLInputElement>} */ (advancedEl.querySelectorAll("input[data-type]"));
 
@@ -246,15 +248,26 @@ searchEl.addEventListener("input", applySearch);
 
 // ---- Advanced ------------------------------------------------------------
 
-/** @param {boolean} open */
-function setAdvancedOpen(open) {
-  advancedToggle.setAttribute("aria-expanded", String(open));
-  advancedToggle.setAttribute("aria-label", `${open ? "Hide" : "Show"} Advanced settings`);
-  advancedEl.hidden = !open;
+/** @param {boolean} advanced */
+function selectTab(advanced) {
+  for (const [tab, on] of /** @type {[HTMLButtonElement, boolean][]} */ ([[tabSites, !advanced], [tabAdvanced, advanced]])) {
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+  }
+  sitesEl.hidden = advanced;
+  advancedEl.hidden = !advanced;
 }
-advancedToggle.addEventListener("click", () =>
-  setAdvancedOpen(advancedToggle.getAttribute("aria-expanded") !== "true")
-);
+tabSites.addEventListener("click", () => selectTab(false));
+tabAdvanced.addEventListener("click", () => selectTab(true));
+// Arrow keys move between the two tabs, as in any tab list.
+for (const tab of [tabSites, tabAdvanced]) {
+  tab.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const advanced = tab === tabSites;
+    selectTab(advanced);
+    (advanced ? tabAdvanced : tabSites).focus();
+  });
+}
 
 function renderAlsoRemove() {
   for (const sw of alsoSwitches) {

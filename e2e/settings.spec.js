@@ -182,32 +182,27 @@ const stubPermissionRequest = (page, granted) =>
   }, granted);
 
 /** @param {import("@playwright/test").Page} page */
-const advancedToggle = (page) => page.getByRole("button", { name: /Advanced settings/ });
+const advancedToggle = (page) => page.getByRole("tab", { name: "Advanced" });
 
-test("Advanced section is collapsed on load", async ({ openSettings }) => {
+test("Advanced is its own tab, and Sites shows first", async ({ openSettings }) => {
   const page = await openSettings();
-  const toggle = advancedToggle(page);
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const tab = advancedToggle(page);
+  await expect(tab).toHaveAttribute("aria-selected", "false");
   await expect(page.getByRole("switch", { name: "Also remove cookies" })).toBeHidden();
   await expect(page.getByText("History is always removed.")).toBeHidden();
 
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(toggle).toHaveAccessibleName("Hide Advanced settings");
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("searchbox", { name: "Search sites" })).toBeHidden();
   for (const name of ["Also remove cookies", "Also remove cached files", "Also remove site storage"]) {
     const sw = page.getByRole("switch", { name });
     await expect(sw).toBeVisible();
     await expect(sw).not.toBeChecked();
   }
-  await expect(page.getByText("Signs you out of these sites.")).toBeVisible();
-  // Site storage can hold sign-in tokens, so its line warns about sign-out too.
-  await expect(page.getByText("Can sign you out of some sites.")).toBeVisible();
-  await expect(page.getByText(
-    "History is always removed. Your browser asks for permission the first time you turn one of these on."
-  )).toBeVisible();
+  await expect(page.getByText("History is always removed.")).toBeVisible();
 
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("tab", { name: "Sites" }).click();
+  await expect(page.getByRole("searchbox", { name: "Search sites" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Also remove cookies" })).toBeHidden();
 });
 

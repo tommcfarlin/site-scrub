@@ -23,6 +23,12 @@
         <p class="lede">Pick the sites to forget. Then click the 🧽 in your toolbar.</p>
       </header>
 
+      <div class="tabs" role="tablist" aria-label="Settings">
+        <button class="tab" id="tab-sites" type="button" role="tab" aria-selected="true" aria-controls="sites" tabindex="0">Sites</button>
+        <button class="tab" id="tab-advanced" type="button" role="tab" aria-selected="false" aria-controls="advanced" tabindex="-1">Advanced</button>
+      </div>
+
+      <div id="sites" role="tabpanel" aria-labelledby="tab-sites">
       <div class="lbl">
         <b id="sites-label">Sites to scrub</b>
         <span id="summary" aria-live="polite"></span>
@@ -41,18 +47,9 @@
 
       <p class="note">Turning on a site also scrubs everything under it, like m.facebook.com. Use Keep to protect one part you still need.</p>
 
-      <div class="lbl"><b id="more-label">More</b><span></span></div>
-      <section class="card" aria-labelledby="more-label">
-        <div class="row flush">
-          <div class="grow">
-            <div class="t">Advanced</div>
-            <div class="s">Cookies, site data, and updates</div>
-          </div>
-          <button class="chev" id="advanced-toggle" type="button" aria-label="Show Advanced settings" aria-expanded="false" aria-controls="advanced"><svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3l5 5-5 5"/></svg></button>
-        </div>
-      </section>
+      </div>
 
-      <div id="advanced" hidden>
+      <div id="advanced" role="tabpanel" aria-labelledby="tab-advanced" hidden>
         <div class="lbl"><b id="also-label">Also remove</b><span></span></div>
         <section class="card" aria-labelledby="also-label">
           <div class="row flush">
