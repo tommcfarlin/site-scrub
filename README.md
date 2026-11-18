@@ -1,57 +1,66 @@
 # 🧽 Site Scrub
 
-A Brave/Chrome (Manifest V3) extension that scrubs selected sites from your
-browsing history with one click.
+A Brave and Chrome (Manifest V3) extension that scrubs the sites you pick from your browsing history with one click.
 
 ## What it does
 
-- **Settings screen** (right-click the icon → **Options**, or `brave://extensions`
-  → Site Scrub → **Details** → **Extension options**): combs your entire available
-  history on first load, lists every hostname **alphabetically** with an item
-  count, and lets you check the ones to purge.
-- **First-run defaults:** `facebook.com`, `reddit.com`, `linkedin.com`,
-  `x.com`, and `twitter.com` (and their subdomains) are pre-checked.
-- **One-click purge:** click the toolbar 🧽. A quick confirm appears in the
-  current page, and on **Scrub** the matching history is permanently removed.
-- **Indicator:** a 🧽 fades in at the top-right of the page, then fades out.
+- **Settings page.** Open it from the toolbar icon (right-click, then **Options**), or from `brave://extensions` → Site Scrub → **Details** → **Extension options**. It reads your whole available history and lists every site, in alphabetical order, with an item count.
+- **Domains with subdomains.** Each row is a registrable domain, such as `facebook.com`. Turn it on and Site Scrub scrubs the domain and every subdomain under it, such as `m.facebook.com`. The list of public suffixes (so `bbc.co.uk` is one site, not `co.uk`) is built in.
+- **Keep.** Open a row to see its subdomains. Use **Keep** on a subdomain to protect it. Keep wins over the domain switch, and a kept host also keeps everything under it.
+- **First-run defaults.** `facebook.com`, `reddit.com`, `linkedin.com`, `x.com`, and `twitter.com` start turned on.
+- **One-click scrub.** Click the 🧽 in the toolbar. A confirm box appears in the page. Press **Scrub** and the matching history is removed for good. A 🧽 fades in and out when it is done.
+- **Advanced options.** Open **Advanced** on the settings page to also remove cookies, cached files, and site storage for the scrubbed sites. History is always removed. Your browser asks for the extra permission the first time you turn one of these on. Cookies are skipped for a domain that has a kept subdomain, because the browser clears cookies for a whole domain at once.
+- **Update check.** Once a day Site Scrub reads one version number from `pressware.co`. When a newer version exists, the toolbar icon shows a dot and the settings page shows a banner. Turn this off in **Advanced** → **Check for updates**.
 
-## Load it into Brave
+## Install from the zip
 
-1. Open `brave://extensions` (or `chrome://extensions`).
-2. Turn on **Developer mode** (top-right toggle).
-3. Click **Load unpacked** and select this folder
-   (`site-scrub`).
-4. The 🧽 icon appears in the toolbar. Click the puzzle-piece and **pin** it
-   for easy access.
-5. Right-click the icon → **Options** to review the site list before your
-   first scrub.
+1. Download `site-scrub-<version>.zip` from the GitHub release page.
+2. Unzip it. Keep the folder somewhere permanent. The browser reads the extension from that folder every time it starts.
+3. Open `brave://extensions` (or `chrome://extensions`).
+4. Turn on **Developer mode** (top-right switch).
+5. Click **Load unpacked** and choose the unzipped folder.
+6. Pin the 🧽 icon from the puzzle-piece menu.
+7. Right-click the icon, then **Options**. Review the list before your first scrub.
 
-## Testing
+## Update
 
-**Unit tests** cover the pure decision-logic in `lib.js` (what gets deleted):
+When the banner or the toolbar dot appears:
 
-```
-npm test        # runs node --test over test/
-```
+1. Download the new zip from the GitHub release page.
+2. Unzip it over the old folder, or into a new folder.
+3. Open `brave://extensions` and click the reload button on Site Scrub. If you used a new folder, remove the old copy and load the new folder.
 
-**Manual checklist** for the browser-bound paths (which can't be unit-tested):
+Your settings stay. The browser keeps them apart from the extension folder as long as the extension keeps the same id. A folder in a new location has a new id, so use the same folder when you can.
 
-1. Load unpacked → open Options → confirm the list is alphabetical and the four
-   defaults are pre-checked.
-2. Compare a hostname's count against `brave://history`.
-3. On a normal web page, click 🧽 → Cancel (default focus) → nothing deleted.
-4. Click 🧽 → Tab to **Scrub** → confirm → items gone, 🧽 fades in/out.
-5. Select nothing that exists → click 🧽 → "You have no sites to scrub" dialog.
-6. Repeat on `brave://history` → confirm the notification fallback appears.
-7. Keyboard-only + screen-reader pass over the confirm dialog and Options.
+## Privacy
 
-## Notes & limitations
+- Site Scrub stores your settings in `chrome.storage.local`, on your computer: the sites you picked, your Keep list, the Advanced switches, the update-check switch, and the newest version number it saw.
+- Your history never leaves the browser.
+- The only network request is the daily update check. It is a plain read of `https://pressware.co/extensions/site-scrub/version.json`. It carries no cookies and no identifier, and it sends nothing about you. If you turn the check off, Site Scrub makes no network request at all.
+- Site Scrub asks for no access to the sites you visit. It draws on the page you are on only when you click the icon.
 
-- Browsers only keep roughly the last **90 days** of history, so "everything"
-  means everything still stored.
-- Deletion is **permanent** — the confirm dialog is the only undo.
-- On internal pages (`brave://`, `chrome://`, the Web Store, the PDF viewer),
-  the extension can't draw on the page, so the confirm and the "scrubbed"
-  message appear as a **system notification** instead.
-- The item count in settings is a per-hostname estimate; the confirm shows the
-  exact number about to be removed.
+## Development
+
+- `npm test` runs the type check (`tsc`) and the unit tests.
+- `npm run test:e2e` runs the Playwright tests in a real Chromium with the extension loaded.
+- `npm run package` builds the release zip in `dist/`.
+- `RELEASING.md` lists the release steps. `ARCHITECTURE.md` explains the design.
+
+### Manual checklist
+
+These paths need a real browser:
+
+1. Load unpacked, open Options, and confirm the list is alphabetical and the defaults are on.
+2. Compare a site's count against `brave://history`.
+3. On a normal page, click 🧽, then Cancel. Nothing is deleted.
+4. Click 🧽, Tab to **Scrub**, and confirm. The items are gone and the 🧽 fades in and out.
+5. Turn every site off, click 🧽, and see the "no sites" message.
+6. Repeat on `brave://history` and confirm the notification fallback.
+7. Do a keyboard-only and screen-reader pass over the confirm box and the settings page.
+
+## Limits
+
+- Browsers keep about 90 days of history. "Everything" means everything still stored.
+- Scrubbing is permanent. The confirm box is the only guard.
+- On internal pages (`brave://`, `chrome://`, the Web Store, the PDF viewer) the extension cannot draw on the page. The confirm and the result appear as a system notification instead.
+- The count in settings is a per-site estimate. The confirm shows the exact number about to be removed.

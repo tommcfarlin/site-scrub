@@ -1,21 +1,39 @@
 # Architecture & Limitations
 
-This note captures the design decisions behind 🧽 Site Scrub and the constraints that
-flow from them, so they read as intentional choices rather than surprises. It's
-the written record of what the five review lenses (security, performance,
-UI/UX, platform, QA) converged on.
+This note records the design decisions behind 🧽 Site Scrub and the limits that follow from them.
 
 ## Files
 
 | File | Responsibility |
 |------|----------------|
-| `manifest.json` | MV3 manifest: permissions, action (no popup), options page |
-| `lib.js` | Host parsing (`hostnameFromUrl`, unit-tested) and the single history read (`searchAllHistory`). No `chrome.*` use at module load. |
-| `background.js` | Service-worker orchestration: toolbar click → confirm → delete → indicator, plus the notification fallback and its durable handlers. |
-| `injected-ui.js` | Functions injected into the active page (`dialogInPage`, `spongeSplashInPage`). Serialized by `executeScript`, so they are fully self-contained. |
-| `options.js` / `options.html` / `options.css` | Settings screen: domains grouped by registrable domain with switches, expandable subdomains with Keep, search, debounced persistence. Light and dark from one stylesheet. |
-| `options-model.js` | **Pure** view logic for the settings screen: counts after Keep, detail and summary text, search matching. Unit-tested. |
-| `test/` | `lib.test.js` (pure logic) and `integration.test.js` (worker flow via a fake `chrome`). |
+| `manifest.json` | MV3 manifest: permissions, optional `browsingData`, action (no popup), options page, service worker |
+| `background.js` | Service worker: toolbar click, confirm, delete, indicator, the notification fallback and its durable handlers, and the update-check listeners. |
+| `lib.js` | Hostname parsing (`hostnameFromUrl`) and the single history read (`searchAllHistory`). No `chrome.*` use at module load. |
+| `domains.js` | `registrableDomain`: the public suffix plus one label, using `psl-data.js`. |
+| `psl-data.js` | Generated public suffix list (`exact`, `wildcard`, `exception` rules). Rebuilt by `scripts/build-psl.js`. Do not edit by hand. |
+| `match.js` | `isScrubbed`, `collectMatches` (which history items a scrub removes, with Keep) and `groupByDomain` (the settings list). |
+| `settings.js` | One `chrome.storage.local` key per setting. `sanitize` cleans every read and write. |
+| `site-data.js` | Optional removal of cookies, cache, and site storage: permission checks, `planSiteData`, `removeSiteData`, and the words used in dialogs. |
+| `updates.js` | The daily update check, the alarm, and the toolbar badge. |
+| `version.js` | `parseVersion` and `compareVersions` for strict `major.minor.patch` strings. |
+| `injected-ui.js` | Functions injected into the active page (`dialogInPage`, `spongeSplashInPage`). `executeScript` serializes them, so each is self-contained. |
+| `options.html` / `options.css` / `options.js` | Settings page: domain switches, expandable subdomains with Keep, search, Advanced, update banner, debounced saves. Light and dark from one stylesheet. |
+| `options-model.js` | Pure view logic for the settings page: counts after Keep, summary text, search matching, banner rule. |
+| `scripts/build-psl.js` | Builds `psl-data.js` from a local copy of the public suffix list. Makes no network call. |
+| `scripts/package.js` / `scripts/package-lib.js` | Build the release zip. `package-lib.js` holds the pure rules: which files ship and the missing-file checks. |
+| `test/` | Unit tests, plus `integration.test.js` (worker flow with a fake `chrome`). |
+| `e2e/` | Playwright tests in real Chromium, including the packaged zip. |
+| `RELEASING.md` | The manual release steps. |
+
+Shipped in the zip: the root `*.js` files except `playwright.config.js`, plus `manifest.json`, `options.html`, `options.css`, and `icons/`.
+
+## Domain model
+
+History is grouped by registrable domain: the public suffix plus one label. `news.bbc.co.uk` belongs to `bbc.co.uk`. `registrableDomain` finds it from `psl-data.js`, which holds the whole public suffix list, private section included. IP addresses, single labels, and bare public suffixes have no registrable domain, so they are never listed or scrubbed.
+
+The user picks domains, not hostnames. A picked domain covers every subdomain under it.
+
+**Keep.** The `kept` setting lists hostnames to protect. A kept host protects itself and all hosts under it. Keep always wins over the domain switch. `isScrubbed` applies this rule for both the scrub and the counts in settings.
 
 ## Key design decision: the in-page injection model
 
@@ -49,17 +67,26 @@ host node (which simply cancels). The scope of a purge is never page-controlled
 
 ## Data flow (one scan per action)
 
-A toolbar click reads history **once** (`searchAllHistory`) and reuses that
-array for: default selection (first run), matching (`collectMatches`), counts,
-and the confirm message. Deletion runs in bounded batches (`deleteInChunks`) so
-a large purge doesn't fire thousands of concurrent `deleteUrl` calls.
+A toolbar click reads history once (`searchAllHistory`) and reuses that array for first-run defaults, matching (`collectMatches`), counts, and the confirm text. Deletion runs in bounded batches (`deleteInChunks`) so a large scrub does not fire thousands of concurrent `deleteUrl` calls.
 
 ## Permissions (least privilege)
 
-`history` (read + delete), `storage` (selection + session durability),
-`scripting` + `activeTab` (inject on the active tab, only on a click — **no**
-`host_permissions`/`<all_urls>`), `notifications` (fallback confirm + results).
-No network access anywhere; history data never leaves the browser.
+- `history`: read and delete.
+- `storage`: settings, and `storage.session` for the pending notification decision.
+- `scripting` and `activeTab`: inject into the active tab, only after a click. There are no `host_permissions` and no `<all_urls>`.
+- `notifications`: the fallback confirm and the results.
+- `alarms`: the daily update check.
+- Optional `browsingData`: asked for the first time the user turns on cookies, cached files, or site storage. `ensurePermission` runs inside the click handler of the switch, because the request needs a user gesture. If the user refuses, the switch stays off. If the permission is later withdrawn, a scrub skips those types and says so in the confirm and the result.
+
+**Cookies and Keep.** `chrome.browsingData.remove` with an `origins` filter clears cookies for the whole registrable domain of each origin, not for one host. A cookie removal for `www.example.com` also clears cookies that `kept.example.com` uses. So `planSiteData` leaves cookies alone for any domain that has a kept host. Cache and site storage are per origin, so they still go. The confirm text tells the user how many sites kept their cookies.
+
+## Update check
+
+`updates.js` runs from a daily `chrome.alarms` alarm. It fetches `https://pressware.co/extensions/site-scrub/version.json`, which holds `{"version":"x.y.z"}`, with `cache: "no-store"` and `credentials: "omit"`. It sends no identifier. Any failure is silent. A newer version is saved as `latestVersion`. The toolbar badge and the settings banner both read it.
+
+The fetch needs no host permission. The service worker makes a plain cross-origin read, and the server allows it with an `Access-Control-Allow-Origin` header. If the server stops sending that header, the check fails silently and no update shows. The request carries no user data. When the user turns the check off, no request is made and the badge clears. The banner has a Later button, which saves `dismissedVersion` and hides the banner until a still newer version appears.
+
+Nothing downloads or installs code. The banner links to the download page, and the user replaces the folder by hand.
 
 ## Known limitations
 
@@ -71,25 +98,15 @@ No network access anywhere; history data never leaves the browser.
   dark pages; intentionally not theme-matched).
 - **"Items" = distinct URLs per hostname**, not per-visit rows as shown in
   `brave://history`. Consistent internally; a modeling choice.
-- **Matching is by full hostname.** Selecting `facebook.com` does not remove
-  `m.facebook.com`; each hostname is chosen independently in settings.
+- **Matching is by registrable domain.** Turning on `facebook.com` scrubs `m.facebook.com` too. Use Keep to protect a subdomain.
 - **Mid-purge history changes** are tolerated (`deleteUrl` is idempotent), so the
   reported count can slightly exceed what was actually present.
 
 ## Testing
 
-- **Unit** (`test/*.test.js`): host parsing edge cases (`lib.test.js`), domain
-  matching and grouping with Keep (`match.test.js`), settings storage, and the
-  settings-screen view logic (`options-model.test.js`).
-- **Integration** (`integration.test.js`): the worker flow against a fake
-  `chrome` — confirmed purge scope, cancel, empty selection, no-match, first-run
-  defaults, the internal-page notification fallback (incl. Cancel), partial
-  failure reporting, and the re-entrancy guard.
-- **Manual**: browser-bound behavior (real injection, notifications, overlay,
-  screen-reader/keyboard a11y, large-history profiling) per the checklist in
-  `README.md`.
-
-- **End-to-end** (`e2e/`, Playwright): the settings screen in real Chromium with
-  the unpacked extension loaded and history seeded through the service worker.
+- **Unit** (`test/*.test.js`): hostnames, public suffix lookup, matching and grouping with Keep, settings storage and sanitizing, site data planning, version compare, the update check, the settings view logic, and the packaging rules.
+- **Integration** (`integration.test.js`): the worker flow against a fake `chrome`: scrub scope, cancel, empty selection, no match, first-run defaults, the notification fallback, partial failure, and the re-entrancy guard.
+- **End-to-end** (`e2e/`, Playwright): the settings page in real Chromium with the extension loaded and history seeded through the service worker. One test builds the zip, unpacks it, loads the unpacked copy, and opens the settings page.
+- **Manual**: browser-bound behavior (real injection, notifications, overlay, keyboard and screen-reader use) per the checklist in `README.md`.
 
 Run unit tests with `npm test` and end-to-end tests with `npm run test:e2e`.
