@@ -5,9 +5,11 @@
   "description": "One-click scrub of selected sites from your browsing history.",
   "type": "module",
   "scripts": {
-    "test": "tsc --noEmit && node --test \"test/**/*.test.js\""
+    "test": "tsc --noEmit && node --test \"test/**/*.test.js\"",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/chrome": "^0.3.7",
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2"
