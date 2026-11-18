@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 function makeChrome() {
   /** @type {{ action: Function[], notifButton: Function[], notifClosed: Function[] }} */
   const listeners = { action: [], notifButton: [], notifClosed: [] };
-  /** @type {{ historyItems: { url: string }[], storageLocal: Record<string, any>, storageSession: Record<string, any>, deleted: string[], notifications: { id: string, opts: any }[], injected: any[], openedOptions: number, searchCount: number }} */
+  /** @type {{ historyItems: { url: string }[], storageLocal: Record<string, any>, storageSession: Record<string, any>, deleted: string[], notifications: { id: string, opts: any }[], injected: any[], openedOptions: number, searchCount: number, siteDataCalls: { options: any, dataToRemove: any, deletedSoFar: number }[] }} */
   const state = {
     historyItems: [],   // [{ url }]
     storageLocal: {},
@@ -24,11 +24,14 @@ function makeChrome() {
     injected: [],       // executeScript args
     openedOptions: 0,
     searchCount: 0,
+    siteDataCalls: [],  // chrome.browsingData.remove calls
   };
-  /** @type {{ executeScript: (arg?: any) => Promise<any>, deleteUrlRejectUrls: Set<string> }} */
+  /** @type {{ executeScript: (arg?: any) => Promise<any>, deleteUrlRejectUrls: Set<string>, browsingDataGranted: boolean, browsingDataReject: boolean }} */
   const config = {
     executeScript: async () => [{ result: undefined }],
     deleteUrlRejectUrls: new Set(),
+    browsingDataGranted: true,
+    browsingDataReject: false,
   };
 
   /** @type {any} */
@@ -73,6 +76,13 @@ function makeChrome() {
       onClosed: { addListener: (/** @type {any} */ fn) => listeners.notifClosed.push(fn) },
     },
     runtime: { openOptionsPage: () => { state.openedOptions++; } },
+    permissions: { contains: async () => config.browsingDataGranted },
+    browsingData: {
+      remove: async (/** @type {any} */ options, /** @type {any} */ dataToRemove) => {
+        state.siteDataCalls.push({ options, dataToRemove, deletedSoFar: state.deleted.length });
+        if (config.browsingDataReject) throw new Error("browsingData failed");
+      },
+    },
   };
 
   function reset() {
@@ -84,8 +94,11 @@ function makeChrome() {
     state.injected = [];
     state.openedOptions = 0;
     state.searchCount = 0;
+    state.siteDataCalls = [];
     config.executeScript = async () => [{ result: undefined }];
     config.deleteUrlRejectUrls = new Set();
+    config.browsingDataGranted = true;
+    config.browsingDataReject = false;
   }
 
   return { chrome, listeners, state, config, reset };
@@ -152,7 +165,7 @@ test("kept host survives and the dialog count excludes it", async () => {
 
   assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
   const dialog = state.injected[0].args[0];
-  assert.match(dialog.message, /remove 1 item from 1 site/);
+  assert.equal(dialog.message, "Permanently remove history from 1 site (1 history item).");
 });
 
 test("notification fallback stores domains and kept; Scrub deletes the same set", async () => {
@@ -170,8 +183,9 @@ test("notification fallback stores domains and kept; Scrub deletes the same set"
   assert.deepEqual(state.storageSession.pendingPurge["n0"], {
     domains: ["facebook.com"],
     kept: ["work.facebook.com"],
+    alsoRemove: { cookies: false, cache: false, storage: false },
   });
-  assert.match(state.notifications[0].opts.message, /remove 2 items from 2 sites/);
+  assert.equal(state.notifications[0].opts.message, "Permanently remove history from 2 sites (2 history items).");
 
   await onNotifButton("n0", 0);
 
@@ -239,7 +253,11 @@ test("internal page falls back to a durable notification confirm", async () => {
   // Pending purge persisted to session storage, keyed by notification id.
   const pending = state.storageSession.pendingPurge;
   assert.ok(pending && pending["n0"]);
-  assert.deepEqual(pending["n0"], { domains: ["facebook.com"], kept: [] });
+  assert.deepEqual(pending["n0"], {
+    domains: ["facebook.com"],
+    kept: [],
+    alsoRemove: { cookies: false, cache: false, storage: false },
+  });
 
   // User clicks "Scrub" (button index 0) — handled by the durable top-level listener.
   await onNotifButton("n0", 0);
@@ -275,8 +293,7 @@ test("partial deletion failure is tolerated and reported", async () => {
   assert.deepEqual(state.deleted.sort(), ["https://facebook.com/1", "https://facebook.com/2"]);
   const last = state.notifications.at(-1);
   assert.ok(last);
-  assert.match(last.opts.message, /Removed 1 item/);
-  assert.match(last.opts.message, /could not be removed/);
+  assert.equal(last.opts.message, "Removed history from 1 site (1 history item, 1 could not be removed).");
 });
 
 test("re-entrancy guard ignores a second click while one is mid-confirm", async () => {
@@ -311,4 +328,257 @@ test("re-entrancy guard ignores a second click while one is mid-confirm", async 
 
   assert.equal(state.searchCount, 1, "still only one scan total");
   assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+});
+
+test("scrub removes site data for active types only", async () => {
+  state.historyItems = [
+    { url: "https://facebook.com/1" },
+    { url: "https://m.facebook.com/2" },
+    { url: "https://m.facebook.com/3" },
+    { url: "https://example.com/4" },
+  ];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: true };
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.equal(
+    state.injected[0].args[0].message,
+    "Permanently remove history, cookies, and site storage from 2 sites (3 history items)."
+  );
+  assert.equal(state.siteDataCalls.length, 1);
+  const [call] = state.siteDataCalls;
+  assert.deepEqual(call.options, {
+    origins: ["https://facebook.com", "http://facebook.com", "https://m.facebook.com", "http://m.facebook.com"],
+  });
+  assert.deepEqual(call.dataToRemove, {
+    cookies: true, localStorage: true, indexedDB: true, serviceWorkers: true, cacheStorage: true,
+  });
+  assert.equal(call.deletedSoFar, 3, "site data is removed after the history deletion");
+  assert.equal(
+    state.injected.at(-1).args[0],
+    "Removed history, cookies, and site storage from 2 sites (3 history items)."
+  );
+});
+
+test("no site data call when alsoRemove is all false", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: false, cache: false, storage: false };
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+  assert.equal(state.siteDataCalls.length, 0);
+  assert.equal(state.injected[0].args[0].message, "Permanently remove history from 1 site (1 history item).");
+});
+
+test("notification path removes site data read at scrub time", async () => {
+  state.historyItems = [{ url: "https://www.reddit.com/r/a" }];
+  state.storageLocal.domains = ["reddit.com"];
+  state.storageLocal.alsoRemove = { cookies: false, cache: true, storage: false };
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+  assert.equal(state.notifications[0].opts.message, "Permanently remove history and cached files from 1 site (1 history item).");
+
+  await onNotifButton("n0", 0);
+
+  assert.deepEqual(state.siteDataCalls.map((c) => c.dataToRemove), [{ cache: true }]);
+  assert.equal(state.notifications.at(-1)?.opts.message, "Removed history and cached files from 1 site (1 history item).");
+});
+
+test("missing browsingData permission still scrubs history", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: false };
+  config.browsingDataGranted = false;
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+  assert.equal(state.siteDataCalls.length, 0);
+  assert.equal(
+    state.injected[0].args[0].message,
+    "Permanently remove history from 1 site (1 history item). Cookies are skipped because the permission is off."
+  );
+  assert.equal(
+    state.injected.at(-1).args[0],
+    "Removed history from 1 site (1 history item). Cookies are skipped because the permission is off."
+  );
+});
+
+test("a site data failure still shows the result with a short extra sentence", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: false };
+  config.browsingDataReject = true;
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+  await onNotifButton("n0", 0);
+
+  assert.deepEqual(state.deleted, ["https://facebook.com/1"]);
+  assert.equal(
+    state.notifications.at(-1)?.opts.message,
+    "Removed history from 1 site (1 history item). Cookies could not be removed."
+  );
+});
+
+// ---- fix round 1: Keep wins for cookies; messages match what happened -----
+
+test("kept subdomain: cookies are not removed for its domain, cache still is", async () => {
+  state.historyItems = [
+    { url: "https://facebook.com/1" },
+    { url: "https://m.facebook.com/2" },
+    { url: "https://work.facebook.com/3" },
+  ];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.kept = ["work.facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: true, storage: false };
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.equal(
+    state.injected[0].args[0].message,
+    "Permanently remove history and cached files from 2 sites (2 history items). " +
+      "Cookies are kept for 1 site with a kept subdomain."
+  );
+  assert.ok(state.siteDataCalls.every((c) => !c.dataToRemove.cookies), "no cookie removal for facebook hosts");
+  assert.deepEqual(state.siteDataCalls.map((c) => [c.options, c.dataToRemove]), [[
+    { origins: ["https://facebook.com", "http://facebook.com", "https://m.facebook.com", "http://m.facebook.com"] },
+    { cache: true },
+  ]]);
+  assert.equal(
+    state.injected.at(-1).args[0],
+    "Removed history and cached files from 2 sites (2 history items). Cookies are kept for 1 site with a kept subdomain."
+  );
+});
+
+test("kept subdomain on one domain still removes cookies for the other domains", async () => {
+  state.historyItems = [
+    { url: "https://facebook.com/1" },
+    { url: "https://work.facebook.com/2" },
+    { url: "https://www.reddit.com/3" },
+  ];
+  state.storageLocal.domains = ["facebook.com", "reddit.com"];
+  state.storageLocal.kept = ["work.facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: true, storage: false };
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.siteDataCalls.map((c) => [c.options.origins, c.dataToRemove]), [
+    [["https://www.reddit.com", "http://www.reddit.com"], { cookies: true }],
+    [["https://facebook.com", "http://facebook.com", "https://www.reddit.com", "http://www.reddit.com"], { cache: true }],
+  ]);
+  assert.equal(
+    state.injected.at(-1).args[0],
+    "Removed history, cookies, and cached files from 2 sites (2 history items). " +
+      "Cookies are kept for 1 site with a kept subdomain."
+  );
+});
+
+test("no kept entry: cookies and cache are removed together", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }, { url: "https://m.facebook.com/2" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: true, storage: false };
+  config.executeScript = async () => [{ result: true }];
+
+  await onClicked({ id: 1 });
+
+  assert.deepEqual(state.siteDataCalls.map((c) => c.dataToRemove), [{ cookies: true, cache: true }]);
+  assert.equal(
+    state.injected[0].args[0].message,
+    "Permanently remove history, cookies, and cached files from 2 sites (2 history items)."
+  );
+  assert.equal(
+    state.injected.at(-1).args[0],
+    "Removed history, cookies, and cached files from 2 sites (2 history items)."
+  );
+});
+
+test("notification path: kept subdomain note shows in the confirm and the result", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }, { url: "https://work.facebook.com/2" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.kept = ["work.facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: false };
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+  assert.equal(
+    state.notifications[0].opts.message,
+    "Permanently remove history from 1 site (1 history item). Cookies are kept for 1 site with a kept subdomain."
+  );
+
+  await onNotifButton("n0", 0);
+
+  assert.equal(state.siteDataCalls.length, 0);
+  assert.equal(
+    state.notifications.at(-1)?.opts.message,
+    "Removed history from 1 site (1 history item). Cookies are kept for 1 site with a kept subdomain."
+  );
+});
+
+test("missing permission: the dialog and result name only history and the skipped types", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }, { url: "https://www.reddit.com/2" }];
+  state.storageLocal.domains = ["facebook.com", "reddit.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: true, storage: false };
+  config.browsingDataGranted = false;
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+  assert.equal(
+    state.notifications[0].opts.message,
+    "Permanently remove history from 2 sites (2 history items). " +
+      "Cookies and cached files are skipped because the permission is off."
+  );
+
+  await onNotifButton("n0", 0);
+
+  assert.equal(state.siteDataCalls.length, 0);
+  assert.equal(
+    state.notifications.at(-1)?.opts.message,
+    "Removed history from 2 sites (2 history items). Cookies and cached files are skipped because the permission is off."
+  );
+});
+
+test("permission revoked after the confirm: the result says the types were skipped", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: true, cache: false, storage: false };
+  config.executeScript = async () => {
+    config.browsingDataGranted = false; // revoked while the dialog is open
+    return [{ result: true }];
+  };
+
+  await onClicked({ id: 1 });
+
+  assert.equal(state.injected[0].args[0].message, "Permanently remove history and cookies from 1 site (1 history item).");
+  assert.equal(state.siteDataCalls.length, 0);
+  assert.equal(
+    state.injected.at(-1).args[0],
+    "Removed history from 1 site (1 history item). Cookies are skipped because the permission is off."
+  );
+});
+
+test("notification path uses the types read at click time, not later edits", async () => {
+  state.historyItems = [{ url: "https://facebook.com/1" }];
+  state.storageLocal.domains = ["facebook.com"];
+  state.storageLocal.alsoRemove = { cookies: false, cache: true, storage: false };
+  config.executeScript = async () => { throw new Error("internal page"); };
+
+  await onClicked({ id: 1 });
+  state.storageLocal.alsoRemove = { cookies: true, cache: true, storage: true }; // changed while open
+  await onNotifButton("n0", 0);
+
+  assert.deepEqual(state.siteDataCalls.map((c) => c.dataToRemove), [{ cache: true }]);
+  assert.equal(
+    state.notifications.at(-1)?.opts.message,
+    "Removed history and cached files from 1 site (1 history item)."
+  );
 });

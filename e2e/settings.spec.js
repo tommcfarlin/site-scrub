@@ -142,8 +142,8 @@ test("every switch has an accessible name", async ({ openSettings }) => {
   const page = await openSettings();
   await expect(rows(page)).toHaveCount(5);
   const switches = page.getByRole("switch");
-  await expect(switches).toHaveCount(await rows(page).count());
-  for (const sw of await switches.all()) {
+  await expect(switches.filter({ visible: true })).toHaveCount(await rows(page).count());
+  for (const sw of await switches.filter({ visible: true }).all()) {
     await expect(sw).toHaveAccessibleName(/^Scrub \S+$/);
   }
 });
@@ -158,4 +158,98 @@ test("dark scheme uses the dark ground color", async ({ openSettings }) => {
   await page.emulateMedia({ colorScheme: "light" });
   const light = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   expect(light).toBe("rgb(245, 245, 247)");
+});
+
+// ---- Advanced: also remove cookies, cache, and site storage ---------------
+
+/**
+ * Replace chrome.permissions.request on the settings page. A real permission
+ * prompt cannot be answered in headless Chromium.
+ * @param {import("@playwright/test").Page} page
+ * @param {boolean} granted
+ */
+const stubPermissionRequest = (page, granted) =>
+  page.evaluate((g) => {
+    /** @type {any} */ (window).__permissionRequests = [];
+    chrome.permissions.request = /** @type {any} */ (async (/** @type {any} */ p) => {
+      /** @type {any} */ (window).__permissionRequests.push(p);
+      return g;
+    });
+  }, granted);
+
+/** @param {import("@playwright/test").Page} page */
+const advancedToggle = (page) => page.getByRole("button", { name: /Advanced settings/ });
+
+test("Advanced section is collapsed on load", async ({ openSettings }) => {
+  const page = await openSettings();
+  const toggle = advancedToggle(page);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("switch", { name: "Also remove cookies" })).toBeHidden();
+  await expect(page.getByText("History is always removed.")).toBeHidden();
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toHaveAccessibleName("Hide Advanced settings");
+  for (const name of ["Also remove cookies", "Also remove cached files", "Also remove site storage"]) {
+    const sw = page.getByRole("switch", { name });
+    await expect(sw).toBeVisible();
+    await expect(sw).not.toBeChecked();
+  }
+  await expect(page.getByText("Signs you out of these sites.")).toBeVisible();
+  await expect(page.getByText(
+    "History is always removed. Your browser asks for permission the first time you turn one of these on."
+  )).toBeVisible();
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("switch", { name: "Also remove cookies" })).toBeHidden();
+});
+
+test("turning on cookies after a granted permission saves alsoRemove", async ({ openSettings, serviceWorker }) => {
+  const page = await openSettings();
+  await stubPermissionRequest(page, true);
+  await advancedToggle(page).click();
+
+  const cookies = page.getByRole("switch", { name: "Also remove cookies" });
+  await cookies.click();
+  await expect(cookies).toBeChecked();
+  await expect
+    .poll(() => stored(serviceWorker, "alsoRemove"))
+    .toEqual({ cookies: true, cache: false, storage: false });
+  expect(await page.evaluate(() => /** @type {any} */ (window).__permissionRequests))
+    .toEqual([{ permissions: ["browsingData"] }]);
+
+  // A second type keeps the first (alsoRemove is saved whole).
+  await page.getByRole("switch", { name: "Also remove site storage" }).click();
+  await expect
+    .poll(() => stored(serviceWorker, "alsoRemove"))
+    .toEqual({ cookies: true, cache: false, storage: true });
+
+  // Turning one off saves without asking again.
+  await cookies.click();
+  await expect(cookies).not.toBeChecked();
+  await expect
+    .poll(() => stored(serviceWorker, "alsoRemove"))
+    .toEqual({ cookies: false, cache: false, storage: true });
+  expect(await page.evaluate(() => /** @type {any} */ (window).__permissionRequests.length)).toBe(2);
+
+  // Survives a reload.
+  await page.reload();
+  await advancedToggle(page).click();
+  await expect(page.getByRole("switch", { name: "Also remove site storage" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Also remove cookies" })).not.toBeChecked();
+});
+
+test("denied permission leaves the switch off and saves nothing", async ({ openSettings, serviceWorker }) => {
+  const page = await openSettings();
+  await stubPermissionRequest(page, false);
+  await advancedToggle(page).click();
+
+  const cookies = page.getByRole("switch", { name: "Also remove cookies" });
+  await cookies.click();
+  await expect.poll(() => page.evaluate(() => /** @type {any} */ (window).__permissionRequests.length)).toBe(1);
+  await expect(cookies).not.toBeChecked();
+  // Give any stray write time to land, then check that nothing was stored.
+  await page.waitForTimeout(400);
+  expect(await stored(serviceWorker, "alsoRemove")).toBeUndefined();
 });

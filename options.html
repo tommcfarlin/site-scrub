@@ -39,9 +39,37 @@
             <div class="t">Advanced</div>
             <div class="s">Cookies, site data, and updates</div>
           </div>
-          <button class="chev" id="advanced-toggle" type="button" aria-label="Show Advanced settings" aria-expanded="false"><svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3l5 5-5 5"/></svg></button>
+          <button class="chev" id="advanced-toggle" type="button" aria-label="Show Advanced settings" aria-expanded="false" aria-controls="advanced"><svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3l5 5-5 5"/></svg></button>
         </div>
       </section>
+
+      <div id="advanced" hidden>
+        <div class="lbl"><b id="also-label">Also remove</b><span></span></div>
+        <section class="card" aria-labelledby="also-label">
+          <div class="row flush">
+            <div class="grow">
+              <div class="t">Cookies</div>
+              <div class="s">Signs you out of these sites.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" data-type="cookies" aria-label="Also remove cookies" />
+          </div>
+          <div class="row">
+            <div class="grow">
+              <div class="t">Cached files</div>
+              <div class="s">Images and pages saved to load faster.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" data-type="cache" aria-label="Also remove cached files" />
+          </div>
+          <div class="row">
+            <div class="grow">
+              <div class="t">Site storage</div>
+              <div class="s">Data that sites keep in your browser.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" data-type="storage" aria-label="Also remove site storage" />
+          </div>
+        </section>
+        <p class="note">History is always removed. Your browser asks for permission the first time you turn one of these on.</p>
+      </div>
 
       <footer class="foot">
         <div>Scrubbing is permanent. Site Scrub always asks first.</div>

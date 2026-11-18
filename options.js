@@ -7,14 +7,19 @@ import { searchAllHistory } from "./lib.js";
 import { groupByDomain } from "./match.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { domainView, summaryText, matchesQuery, isKept, itemsLabel } from "./options-model.js";
+import { ensurePermission } from "./site-data.js";
 
 /** @typedef {import("./match.js").DomainGroup} DomainGroup */
+/** @typedef {import("./settings.js").Settings["alsoRemove"]} AlsoRemove */
 
 const listEl = /** @type {HTMLUListElement} */ (document.getElementById("list"));
 const statusEl = /** @type {HTMLElement} */ (document.getElementById("status"));
 const summaryEl = /** @type {HTMLElement} */ (document.getElementById("summary"));
 const searchEl = /** @type {HTMLInputElement} */ (document.getElementById("search"));
 const versionEl = /** @type {HTMLElement} */ (document.getElementById("version"));
+const advancedToggle = /** @type {HTMLButtonElement} */ (document.getElementById("advanced-toggle"));
+const advancedEl = /** @type {HTMLElement} */ (document.getElementById("advanced"));
+const alsoSwitches = /** @type {NodeListOf<HTMLInputElement>} */ (advancedEl.querySelectorAll("input[data-type]"));
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -26,6 +31,8 @@ let byDomain = new Map();
 let domains = new Set();
 /** @type {Set<string>} Hostnames protected by Keep. */
 let kept = new Set();
+/** @type {AlsoRemove} Data types removed along with history. */
+let alsoRemove = { cookies: false, cache: false, storage: false };
 
 /** @type {Partial<import("./settings.js").Settings>} Writes waiting for the debounce. */
 let pending = {};
@@ -232,6 +239,39 @@ function applySearch() {
 
 searchEl.addEventListener("input", applySearch);
 
+// ---- Advanced ------------------------------------------------------------
+
+/** @param {boolean} open */
+function setAdvancedOpen(open) {
+  advancedToggle.setAttribute("aria-expanded", String(open));
+  advancedToggle.setAttribute("aria-label", `${open ? "Hide" : "Show"} Advanced settings`);
+  advancedEl.hidden = !open;
+}
+advancedToggle.addEventListener("click", () =>
+  setAdvancedOpen(advancedToggle.getAttribute("aria-expanded") !== "true")
+);
+
+function renderAlsoRemove() {
+  for (const sw of alsoSwitches) {
+    sw.checked = alsoRemove[/** @type {keyof AlsoRemove} */ (sw.dataset.type)];
+  }
+}
+
+for (const sw of alsoSwitches) {
+  const type = /** @type {keyof AlsoRemove} */ (sw.dataset.type);
+  sw.addEventListener("change", async () => {
+    // Ask first, while the click still counts as a user gesture. If the user
+    // says no, put the switch back and save nothing.
+    if (sw.checked && !(await ensurePermission())) {
+      sw.checked = false;
+      return;
+    }
+    alsoRemove = { ...alsoRemove, [type]: sw.checked };
+    // Save alsoRemove whole: a partial object would reset the other flags.
+    await saveSettings({ alsoRemove: { ...alsoRemove } });
+  });
+}
+
 versionEl.textContent = `Site Scrub ${chrome.runtime.getManifest().version}`;
 
 // Initial load.
@@ -241,6 +281,8 @@ try {
   byDomain = new Map(groups.map((g) => [g.domain, g]));
   domains = new Set(settings.domains);
   kept = new Set(settings.kept);
+  alsoRemove = settings.alsoRemove;
+  renderAlsoRemove();
   render();
 } catch (e) {
   console.error("Site Scrub: could not load history or settings", e);
