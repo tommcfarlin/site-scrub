@@ -10,10 +10,11 @@ UI/UX, platform, QA) converged on.
 | File | Responsibility |
 |------|----------------|
 | `manifest.json` | MV3 manifest: permissions, action (no popup), options page |
-| `lib.js` | **Pure** decision-logic — no `chrome.*` at module load. Host parsing, target matching, tallying, and matching. Unit-tested. |
+| `lib.js` | Host parsing (`hostnameFromUrl`, unit-tested) and the single history read (`searchAllHistory`). No `chrome.*` use at module load. |
 | `background.js` | Service-worker orchestration: toolbar click → confirm → delete → indicator, plus the notification fallback and its durable handlers. |
 | `injected-ui.js` | Functions injected into the active page (`dialogInPage`, `spongeSplashInPage`). Serialized by `executeScript`, so they are fully self-contained. |
-| `options.js` / `options.html` | Settings screen: alphabetical hostname list with checkboxes, bulk controls, debounced persistence. |
+| `options.js` / `options.html` / `options.css` | Settings screen: domains grouped by registrable domain with switches, expandable subdomains with Keep, search, debounced persistence. Light and dark from one stylesheet. |
+| `options-model.js` | **Pure** view logic for the settings screen: counts after Keep, detail and summary text, search matching. Unit-tested. |
 | `test/` | `lib.test.js` (pure logic) and `integration.test.js` (worker flow via a fake `chrome`). |
 
 ## Key design decision: the in-page injection model
@@ -77,8 +78,9 @@ No network access anywhere; history data never leaves the browser.
 
 ## Testing
 
-- **Unit** (`lib.test.js`): the pure decision-logic — host parsing edge cases,
-  target-domain boundaries (incl. lookalikes), tallying, and matching scope.
+- **Unit** (`test/*.test.js`): host parsing edge cases (`lib.test.js`), domain
+  matching and grouping with Keep (`match.test.js`), settings storage, and the
+  settings-screen view logic (`options-model.test.js`).
 - **Integration** (`integration.test.js`): the worker flow against a fake
   `chrome` — confirmed purge scope, cancel, empty selection, no-match, first-run
   defaults, the internal-page notification fallback (incl. Cancel), partial
@@ -87,4 +89,7 @@ No network access anywhere; history data never leaves the browser.
   screen-reader/keyboard a11y, large-history profiling) per the checklist in
   `README.md`.
 
-Run automated tests with `npm test`.
+- **End-to-end** (`e2e/`, Playwright): the settings screen in real Chromium with
+  the unpacked extension loaded and history seeded through the service worker.
+
+Run unit tests with `npm test` and end-to-end tests with `npm run test:e2e`.
