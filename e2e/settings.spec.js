@@ -253,3 +253,66 @@ test("denied permission leaves the switch off and saves nothing", async ({ openS
   await page.waitForTimeout(400);
   expect(await stored(serviceWorker, "alsoRemove")).toBeUndefined();
 });
+
+// ---- update banner -------------------------------------------------------
+
+/** @param {import("@playwright/test").Worker} sw @param {Record<string, unknown>} items */
+const seed = (sw, items) => sw.evaluate((o) => chrome.storage.local.set(o), items);
+
+test("banner for a newer version", async ({ openSettings, serviceWorker }) => {
+  await seed(serviceWorker, { latestVersion: "9.9.9" });
+  const page = await openSettings();
+  const banner = page.locator("#update-banner");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("Version 9.9.9 is available");
+  await expect(banner).toContainText("Download it, replace your Site Scrub folder, then reload the extension.");
+  const download = banner.getByRole("link", { name: "Download" });
+  await expect(download).toHaveAttribute("href", "https://pressware.co/extensions/site-scrub/");
+  await expect(download).toHaveAttribute("target", "_blank");
+  await expect(download).toHaveAttribute("rel", "noopener noreferrer");
+
+  await banner.getByRole("button", { name: "Later" }).click();
+  await expect(banner).toBeHidden();
+  await expect.poll(() => stored(serviceWorker, "dismissedVersion")).toBe("9.9.9");
+
+  // Stays hidden after a reload...
+  await page.reload();
+  await expect(page.locator("#summary")).not.toBeEmpty();
+  await expect(banner).toBeHidden();
+
+  // ...until a still-newer version appears.
+  await seed(serviceWorker, { latestVersion: "9.9.10" });
+  await page.reload();
+  await expect(banner).toContainText("Version 9.9.10 is available");
+});
+
+test("no banner when latestVersion equals the running version", async ({ openSettings, serviceWorker }) => {
+  await seed(serviceWorker, { latestVersion: "1.0.0" });
+  const page = await openSettings();
+  await expect(page.locator("#summary")).not.toBeEmpty();
+  await expect(page.locator("#update-banner")).toBeHidden();
+});
+
+test("turning off Check for updates hides the banner", async ({ openSettings, serviceWorker }) => {
+  await seed(serviceWorker, { latestVersion: "9.9.9" });
+  const page = await openSettings();
+  const banner = page.locator("#update-banner");
+  await expect(banner).toBeVisible();
+  await advancedToggle(page).click();
+  const sw = page.getByRole("switch", { name: "Check for updates" });
+  await expect(sw).toBeChecked();
+  await expect(page.getByText("Once a day, Site Scrub reads one version number from pressware.co. Nothing about you is sent.")).toBeVisible();
+  await sw.click();
+  await expect(banner).toBeHidden();
+  await expect.poll(() => stored(serviceWorker, "updateCheck")).toBe(false);
+
+  // Off stays off after a reload, and the banner stays hidden.
+  await page.reload();
+  await advancedToggle(page).click();
+  await expect(page.getByRole("switch", { name: "Check for updates" })).not.toBeChecked();
+  await expect(banner).toBeHidden();
+
+  // Back on: the banner returns.
+  await page.getByRole("switch", { name: "Check for updates" }).click();
+  await expect(banner).toBeVisible();
+});

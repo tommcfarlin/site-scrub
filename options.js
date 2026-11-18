@@ -6,7 +6,7 @@
 import { searchAllHistory } from "./lib.js";
 import { groupByDomain } from "./match.js";
 import { loadSettings, saveSettings } from "./settings.js";
-import { domainView, summaryText, matchesQuery, isKept, itemsLabel } from "./options-model.js";
+import { domainView, summaryText, matchesQuery, isKept, itemsLabel, showUpdateBanner } from "./options-model.js";
 import { ensurePermission } from "./site-data.js";
 
 /** @typedef {import("./match.js").DomainGroup} DomainGroup */
@@ -20,6 +20,11 @@ const versionEl = /** @type {HTMLElement} */ (document.getElementById("version")
 const advancedToggle = /** @type {HTMLButtonElement} */ (document.getElementById("advanced-toggle"));
 const advancedEl = /** @type {HTMLElement} */ (document.getElementById("advanced"));
 const alsoSwitches = /** @type {NodeListOf<HTMLInputElement>} */ (advancedEl.querySelectorAll("input[data-type]"));
+
+const bannerEl = /** @type {HTMLElement} */ (document.getElementById("update-banner"));
+const bannerTitleEl = /** @type {HTMLElement} */ (document.getElementById("update-title"));
+const laterEl = /** @type {HTMLButtonElement} */ (document.getElementById("update-later"));
+const updateCheckEl = /** @type {HTMLInputElement} */ (document.getElementById("update-check"));
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -272,7 +277,34 @@ for (const sw of alsoSwitches) {
   });
 }
 
-versionEl.textContent = `Site Scrub ${chrome.runtime.getManifest().version}`;
+// ---- Updates -------------------------------------------------------------
+
+const currentVersion = chrome.runtime.getManifest().version;
+let updateCheck = true;
+/** @type {string | null} */
+let latestVersion = null;
+/** @type {string | null} */
+let dismissedVersion = null;
+
+function renderBanner() {
+  const show = showUpdateBanner({ updateCheck, latestVersion, dismissedVersion }, currentVersion);
+  bannerTitleEl.textContent = show ? `Version ${latestVersion} is available` : "";
+  bannerEl.hidden = !show;
+}
+
+laterEl.addEventListener("click", () => {
+  dismissedVersion = latestVersion;
+  scheduleSave({ dismissedVersion });
+  renderBanner();
+});
+
+updateCheckEl.addEventListener("change", () => {
+  updateCheck = updateCheckEl.checked;
+  scheduleSave({ updateCheck });
+  renderBanner();
+});
+
+versionEl.textContent = `Site Scrub ${currentVersion}`;
 
 // Initial load.
 try {
@@ -282,6 +314,11 @@ try {
   domains = new Set(settings.domains);
   kept = new Set(settings.kept);
   alsoRemove = settings.alsoRemove;
+  updateCheck = settings.updateCheck;
+  latestVersion = settings.latestVersion;
+  dismissedVersion = settings.dismissedVersion;
+  updateCheckEl.checked = updateCheck;
+  renderBanner();
   renderAlsoRemove();
   render();
 } catch (e) {

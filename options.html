@@ -8,6 +8,15 @@
   </head>
   <body>
     <main class="wrap">
+      <div class="banner" id="update-banner" role="status" hidden>
+        <div class="grow">
+          <div class="t" id="update-title"></div>
+          <div class="s">Download it, replace your Site Scrub folder, then reload the extension.</div>
+        </div>
+        <a class="btn" href="https://pressware.co/extensions/site-scrub/" target="_blank" rel="noopener noreferrer">Download</a>
+        <button class="quiet" id="update-later" type="button">Later</button>
+      </div>
+
       <header>
         <div class="tile" aria-hidden="true">🧽</div>
         <h1>Site Scrub</h1>
@@ -69,6 +78,17 @@
           </div>
         </section>
         <p class="note">History is always removed. Your browser asks for permission the first time you turn one of these on.</p>
+
+        <div class="lbl"><b id="updates-label">Updates</b><span></span></div>
+        <section class="card" aria-labelledby="updates-label">
+          <div class="row flush">
+            <div class="grow">
+              <div class="t">Check for updates</div>
+              <div class="s">Once a day, Site Scrub reads one version number from pressware.co. Nothing about you is sent.</div>
+            </div>
+            <input class="sw" type="checkbox" role="switch" id="update-check" aria-label="Check for updates" />
+          </div>
+        </section>
       </div>
 
       <footer class="foot">
