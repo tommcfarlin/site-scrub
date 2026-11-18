@@ -37,6 +37,13 @@ export function dialogInPage(opts) {
     document.getElementById(ID)?.remove();
 
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Same look as the settings page: system font, one accent, red only on the
+    // destructive button, light and dark from the browser setting.
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const c = dark
+      ? { card: "#1C1C1E", text: "#F5F5F7", muted: "#98989F", field: "#2C2C2E", accent: "#0071E3", scrim: "rgba(0,0,0,0.6)", ring: "rgba(10,132,255,0.6)", shadow: "0 12px 40px rgba(0,0,0,0.6)" }
+      : { card: "#FFFFFF", text: "#1D1D1F", muted: "#6E6E73", field: "#EEEEF1", accent: "#0071E3", scrim: "rgba(0,0,0,0.35)", ring: "rgba(0,113,227,0.45)", shadow: "0 12px 40px rgba(0,0,0,0.25)" };
+    const DANGER = "#D70015";
 
     const host = document.createElement("div");
     host.id = ID;
@@ -53,31 +60,51 @@ export function dialogInPage(opts) {
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      background: "rgba(15,23,42,0.35)",
-      backdropFilter: reduce ? "none" : "blur(2px)",
-      font: "14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+      background: c.scrim,
+      backdropFilter: "blur(8px)",
+      font: "15px/21px -apple-system,BlinkMacSystemFont,'SF Pro Text',Inter,system-ui,sans-serif",
+      WebkitFontSmoothing: "antialiased",
+      opacity: reduce ? "1" : "0",
+      transition: reduce ? "none" : "opacity 160ms ease",
     });
 
     const card = document.createElement("div");
     Object.assign(card.style, {
-      background: "#fff",
-      color: "#0f172a",
+      background: c.card,
+      color: c.text,
       borderRadius: "14px",
-      padding: "22px 22px 18px",
-      width: "320px",
-      boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+      padding: "24px 20px 20px",
+      width: "340px",
+      maxWidth: "calc(100vw - 32px)",
+      boxSizing: "border-box",
+      boxShadow: c.shadow,
       textAlign: "center",
+      transform: reduce ? "none" : "scale(0.96)",
+      transition: reduce ? "none" : "transform 160ms ease",
+    });
+
+    // The sponge tile is the only decoration, as on the settings page.
+    const tile = document.createElement("div");
+    tile.textContent = "🧽";
+    tile.setAttribute("aria-hidden", "true");
+    Object.assign(tile.style, {
+      width: "52px", height: "52px", margin: "0 auto 14px", borderRadius: "13px",
+      background: "linear-gradient(160deg,#FFF6C7,#FFE27A)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: "30px", lineHeight: "1",
     });
 
     const titleEl = document.createElement("div");
     titleEl.id = ID + "-title";
     titleEl.textContent = opts.title;
-    Object.assign(titleEl.style, { fontSize: "17px", fontWeight: "600", marginBottom: "8px" });
+    Object.assign(titleEl.style, {
+      fontSize: "17px", lineHeight: "22px", fontWeight: "600", letterSpacing: "-0.016em", marginBottom: "6px",
+    });
 
     const bodyEl = document.createElement("div");
     bodyEl.id = ID + "-desc";
     bodyEl.textContent = opts.message;
-    Object.assign(bodyEl.style, { color: "#475569", marginBottom: "18px", lineHeight: "1.4" });
+    Object.assign(bodyEl.style, { color: c.muted, fontSize: "14px", lineHeight: "20px", marginBottom: "20px" });
 
     overlay.setAttribute("aria-labelledby", titleEl.id);
     overlay.setAttribute("aria-describedby", bodyEl.id);
@@ -100,15 +127,21 @@ export function dialogInPage(opts) {
       const el = document.createElement("button");
       el.textContent = b.label;
       Object.assign(el.style, {
-        flex: "1", padding: "10px", borderRadius: "9px", cursor: "pointer", fontSize: "14px",
+        flex: "1", padding: "10px 16px", borderRadius: "999px", cursor: "pointer",
+        font: "inherit", fontSize: "15px", fontWeight: "600", border: "none", outline: "none",
       });
       if (b.destructive) {
-        Object.assign(el.style, { border: "none", background: "#dc2626", color: "#fff", fontWeight: "600" });
+        Object.assign(el.style, { background: DANGER, color: "#fff" });
       } else if (b.primary) {
-        Object.assign(el.style, { border: "none", background: "#2563eb", color: "#fff", fontWeight: "600" });
+        Object.assign(el.style, { background: c.accent, color: "#fff" });
       } else {
-        Object.assign(el.style, { border: "1px solid #e2e8f0", background: "#f8fafc", color: "#0f172a" });
+        Object.assign(el.style, { background: c.field, color: c.text });
       }
+      // Focus ring set from script, because a page's CSP can block style tags.
+      el.addEventListener("focus", () => {
+        if (el.matches(":focus-visible")) el.style.boxShadow = `0 0 0 3px ${c.ring}`;
+      });
+      el.addEventListener("blur", () => { el.style.boxShadow = "none"; });
       // Destructive/confirming buttons may require a genuine (isTrusted) click,
       // so a hostile page can't auto-confirm by dispatching a synthetic event.
       el.addEventListener("click", (e) => {
@@ -133,12 +166,18 @@ export function dialogInPage(opts) {
     overlay.addEventListener("click", (e) => { if (e.target === overlay) done(opts.dismissValue); });
     document.addEventListener("keydown", onKey, true);
 
-    card.append(titleEl, bodyEl, row);
+    card.append(tile, titleEl, bodyEl, row);
     overlay.append(card);
     root.append(overlay);
     (document.body || document.documentElement).append(host);
 
     (btnEls[opts.autofocusIndex ?? 0] ?? btnEls[0]).focus();
+    if (!reduce) {
+      requestAnimationFrame(() => {
+        overlay.style.opacity = "1";
+        card.style.transform = "scale(1)";
+      });
+    }
   });
 }
 
