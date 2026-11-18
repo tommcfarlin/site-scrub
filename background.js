@@ -5,20 +5,29 @@
 import { searchAllHistory } from "./lib.js";
 import { collectMatches } from "./match.js";
 import { loadSettings, sanitize } from "./settings.js";
-import { removeSiteData, planSiteData, hasPermission, removalPhrase, dataPhrase } from "./site-data.js";
+import { removeSiteData, planSiteData, hasPermission, removalPhrase, dataPhrase, countSites } from "./site-data.js";
 import { handleUpdateAlarm, registerUpdateAlarm, syncBadge } from "./updates.js";
 import { dialogInPage, spongeSplashInPage } from "./injected-ui.js";
 
 const ICON = "icons/icon128.png";
 
-// storage.session key holding purges awaiting a notification-button decision,
-// as { [notificationId]: { domains, kept, alsoRemove } }. Persisted (not in-memory) so the
-// decision survives service-worker eviction while the notification is open.
-const PENDING_KEY = "pendingPurge";
+// storage.session holds one key per open confirm notification,
+// `pendingPurge:<notificationId>`, with what that confirm showed. Persisted (not
+// in-memory) so the decision survives service-worker eviction while the
+// notification is open. One key per id, so records never overwrite each other.
+const PENDING_PREFIX = "pendingPurge:";
+
+const CHANGED_MESSAGE = "Something changed while you were deciding. Click the sponge again to review.";
+const NO_SITES_MESSAGE = "You have no sites to scrub.";
 
 /** @typedef {import("./settings.js").Settings["alsoRemove"]} AlsoRemove */
 /** @typedef {import("./site-data.js").SiteDataPlan} SiteDataPlan */
-/** @typedef {{ domains: string[], kept: string[], alsoRemove: AlsoRemove }} PendingPurge */
+// What a confirm showed: the settings snapshot it was built from, the number
+// of history items it named, and the data types it named.
+/** @typedef {{ domains: string[], kept: string[], count: number, types: AlsoRemove }} Confirmed */
+
+/** @param {string} id */
+const pendingKey = (id) => `${PENDING_PREFIX}${id}`;
 
 /** @param {number} n @param {string} word */
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -41,13 +50,14 @@ function dataNotes(skipped, keptCookieSites) {
 }
 
 // "Permanently remove history and cookies from 3 sites (12 history items)."
-// The count is always the number of history items.
+// Sites are registrable domains (countSites); the count in brackets is always
+// the number of history items.
 /**
  * @param {number} count
  * @param {SiteDataPlan} plan
  */
 function confirmMessage(count, plan) {
-  return `Permanently remove ${removalPhrase(plan.types)} from ${plural(plan.hosts.length, "site")} ` +
+  return `Permanently remove ${removalPhrase(plan.types)} from ${plural(countSites(plan.hosts), "site")} ` +
     `(${plural(count, "history item")}).${dataNotes(plan.skipped, plan.keptCookieSites)}`;
 }
 
@@ -130,46 +140,106 @@ function notify(title, message) {
   chrome.notifications.create({ type: "basic", iconUrl: ICON, title, message });
 }
 
-// Create the fallback confirm notification and record the pending purge in
-// session storage. The decision is handled by the top-level listeners below,
-// so it survives a service-worker restart while the notification is open.
+// Create the fallback confirm notification. Its pending record is stored
+// first, under the notification id chosen here, so a Scrub click that comes
+// the moment the notification appears always finds it. The decision is handled
+// by the top-level listeners below, so it survives a service-worker restart.
 /**
- * @param {PendingPurge} pending
- * @param {number} count
+ * @param {Confirmed} confirmed
  * @param {SiteDataPlan} plan
  */
-async function requestNotificationConfirm(pending, count, plan) {
-  const id = await new Promise((res) =>
-    chrome.notifications.create(
-      {
-        type: "basic",
-        iconUrl: ICON,
-        title: "🧽 Scrub history?",
-        message: confirmMessage(count, plan),
-        buttons: [{ title: "Scrub" }, { title: "Cancel" }],
-        requireInteraction: true,
-      },
-      res
-    )
-  );
-
-  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, PendingPurge> | undefined }} */ (
-    await chrome.storage.session.get(PENDING_KEY)
-  );
-  store[id] = pending;
-  await chrome.storage.session.set({ [PENDING_KEY]: store });
+async function requestNotificationConfirm(confirmed, plan) {
+  const id = `site-scrub-${crypto.randomUUID()}`;
+  const key = pendingKey(id);
+  await chrome.storage.session.set({ [key]: confirmed });
+  try {
+    await chrome.notifications.create(id, {
+      type: "basic",
+      iconUrl: ICON,
+      title: "🧽 Scrub history?",
+      message: confirmMessage(confirmed.count, plan),
+      buttons: [{ title: "Scrub" }, { title: "Cancel" }],
+      requireInteraction: true,
+    });
+  } catch (e) {
+    await chrome.storage.session.remove(key).catch(() => {});
+    throw e;
+  }
 }
 
-/** @param {string} id @returns {Promise<PendingPurge | undefined>} */
+/**
+ * Stored values are untrusted: rebuild a Confirmed record from one. A bad
+ * count (0) can never equal a real match count, so it always aborts.
+ * @param {unknown} raw
+ * @returns {Confirmed}
+ */
+function readConfirmed(raw) {
+  const r = raw !== null && typeof raw === "object" ? /** @type {Record<string, unknown>} */ (raw) : {};
+  const clean = sanitize({
+    domains: Array.isArray(r.domains) ? r.domains : [],
+    kept: r.kept,
+    alsoRemove: r.types,
+  });
+  const count = typeof r.count === "number" && Number.isInteger(r.count) && r.count > 0 ? r.count : 0;
+  return { domains: clean.domains, kept: clean.kept, count, types: clean.alsoRemove };
+}
+
+// Ids whose record is being taken right now, so a double click on the same
+// notification cannot run the scrub twice.
+/** @type {Set<string>} */
+const taking = new Set();
+
+/** @param {string} id @returns {Promise<Confirmed | undefined>} */
 async function takePending(id) {
-  const { [PENDING_KEY]: store = {} } = /** @type {{ [k: string]: Record<string, PendingPurge> | undefined }} */ (
-    await chrome.storage.session.get(PENDING_KEY)
-  );
-  if (!(id in store)) return undefined;
-  const pending = store[id];
-  delete store[id];
-  await chrome.storage.session.set({ [PENDING_KEY]: store });
-  return pending;
+  if (taking.has(id)) return undefined;
+  taking.add(id);
+  try {
+    const key = pendingKey(id);
+    const { [key]: raw } = await chrome.storage.session.get(key);
+    if (raw === undefined) return undefined;
+    await chrome.storage.session.remove(key);
+    return readConfirmed(raw);
+  } finally {
+    taking.delete(id);
+  }
+}
+
+// ---- after the confirm ---------------------------------------------------
+
+/** @param {AlsoRemove} a @param {AlsoRemove} b */
+const sameTypes = (a, b) => a.cookies === b.cookies && a.cache === b.cache && a.storage === b.storage;
+
+// Build the scrub again after the user confirmed, from the history and the
+// settings as they are now. Only domains that were confirmed AND are still on
+// count, and Keep entries from both are honored, so nothing outside what was
+// confirmed and what the settings now allow is ever matched. If the result is
+// not what the confirm said (item count or data types), nothing is deleted.
+/**
+ * @param {Confirmed} confirmed
+ * @returns {Promise<{ status: "none" } | { status: "changed" } | { status: "ok", matches: { url: string, host: string }[], plan: SiteDataPlan }>}
+ */
+async function recheck(confirmed) {
+  const settings = await loadSettings();
+  const current = new Set(settings.domains);
+  const domains = new Set(confirmed.domains.filter((d) => current.has(d)));
+  const kept = [...new Set([...confirmed.kept, ...settings.kept])];
+  const matches = domains.size === 0 ? [] : collectMatches(await searchAllHistory(), domains, new Set(kept));
+  if (matches.length === 0) return { status: "none" };
+  const plan = await planFor(matches, kept, settings.alsoRemove);
+  if (matches.length !== confirmed.count || !sameTypes(plan.types, confirmed.types)) return { status: "changed" };
+  return { status: "ok", matches, plan };
+}
+
+// Run a confirmed scrub, or explain why nothing was deleted.
+/**
+ * @param {Confirmed} confirmed
+ * @param {number | null} tabId
+ */
+async function scrubConfirmed(confirmed, tabId) {
+  const result = await recheck(confirmed);
+  if (result.status === "none") notify("🧽 Site Scrub", NO_SITES_MESSAGE);
+  else if (result.status === "changed") notify("🧽 Site Scrub", CHANGED_MESSAGE);
+  else await performPurge(result.matches, result.plan, tabId);
 }
 
 // ---- purge ---------------------------------------------------------------
@@ -196,7 +266,7 @@ async function deleteInChunks(urls, size = 200) {
 // Delete every given URL, tolerating individual failures, then remove the
 // planned site data for the matched hostnames, then show the indicator
 // (sponge overlay when a tab is injectable, else a notification). The plan is
-// the one the confirm described, so the text and the removal match. The
+// the re-checked one, which matches what the confirm described. The
 // message names only what was actually removed and reports the number of
 // history items removed. Skipped types and site-data failures add a sentence.
 /**
@@ -229,7 +299,7 @@ async function performPurge(matches, plan, tabId) {
 
   const tail = failed ? `, ${failed} could not be removed` : "";
   const message =
-    `Removed ${removalPhrase(done)} from ${plural(plan.hosts.length, "site")} (${plural(removed, "history item")}${tail}).` +
+    `Removed ${removalPhrase(done)} from ${plural(countSites(plan.hosts), "site")} (${plural(removed, "history item")}${tail}).` +
     `${dataError}${dataNotes(skipped, plan.keptCookieSites)}`;
 
   // Sponge overlay (with a live-region announcement) when a tab is injectable,
@@ -243,21 +313,11 @@ async function performPurge(matches, plan, tabId) {
 
 chrome.notifications.onButtonClicked.addListener(async (id, buttonIndex) => {
   try {
-    const pending = await takePending(id);
-    if (pending === undefined) return;
+    const confirmed = await takePending(id);
+    if (confirmed === undefined) return;
     chrome.notifications.clear(id);
     if (buttonIndex !== 0) return; // 0 = Scrub, 1 = Cancel
-
-    const kept = Array.isArray(pending.kept) ? pending.kept : [];
-    const matches = collectMatches(
-      await searchAllHistory(),
-      new Set(Array.isArray(pending.domains) ? pending.domains : []),
-      new Set(kept)
-    );
-    if (matches.length === 0) return;
-    // The types read at click time, stored with the pending record.
-    const plan = await planFor(matches, kept, sanitize({ alsoRemove: pending.alsoRemove }).alsoRemove);
-    await performPurge(matches, plan, null); // internal page → notification
+    await scrubConfirmed(confirmed, null); // internal page → notification
   } catch (e) {
     console.error("Site Scrub: notification purge failed", e);
     notify("🧽 Site Scrub", "Something went wrong completing the scrub.");
@@ -265,7 +325,10 @@ chrome.notifications.onButtonClicked.addListener(async (id, buttonIndex) => {
 });
 
 chrome.notifications.onClosed.addListener((id) => {
-  takePending(id); // drop any pending record; dismissal = cancel
+  // Drop only this notification's record; dismissal = cancel.
+  chrome.storage.session.remove(pendingKey(id)).catch((e) =>
+    console.error("Site Scrub: clearing a pending scrub failed", e)
+  );
 });
 
 // ---- main flow -----------------------------------------------------------
@@ -277,7 +340,7 @@ let busy = false;
 
 /** @param {chrome.tabs.Tab} tab */
 async function handleClick(tab) {
-  const items = await searchAllHistory(); // single scan, reused below
+  const items = await searchAllHistory(); // one scan for the confirm
   const settings = await loadSettings();
   const domains = new Set(settings.domains);
   const kept = new Set(settings.kept);
@@ -297,26 +360,23 @@ async function handleClick(tab) {
     return;
   }
 
-  const count = matches.length;
   const plan = await planFor(matches, settings.kept, settings.alsoRemove);
+  /** @type {Confirmed} */
+  const confirmed = { domains: [...domains], kept: [...kept], count: matches.length, types: plan.types };
 
   // Prefer an in-page confirm. If it can be injected, it is authoritative for
   // this click (confirmed or cancelled) and we are done.
   if (tab?.id != null) {
-    const inj = await tryInject(tab.id, dialogInPage, [confirmOpts(count, plan)]);
+    const inj = await tryInject(tab.id, dialogInPage, [confirmOpts(confirmed.count, plan)]);
     if (inj.ok) {
-      if (inj.result === true) await performPurge(matches, plan, tab.id);
+      if (inj.result === true) await scrubConfirmed(confirmed, tab.id);
       return;
     }
   }
 
   // Fallback for internal pages: a notification confirm resolved by the
   // durable top-level handlers.
-  await requestNotificationConfirm(
-    { domains: [...domains], kept: [...kept], alsoRemove: settings.alsoRemove },
-    count,
-    plan
-  );
+  await requestNotificationConfirm(confirmed, plan);
 }
 
 chrome.action.onClicked.addListener(async (tab) => {

@@ -65,6 +65,18 @@ export async function hasPermission() {
 }
 
 /**
+ * The number of sites among the given hostnames: unique registrable domains,
+ * so facebook.com and m.facebook.com are one site. The same unit as the
+ * settings page and the "Cookies are kept for N sites" note. Hostnames
+ * without a registrable domain are skipped.
+ * @param {string[]} hostnames
+ * @returns {number}
+ */
+export function countSites(hostnames) {
+  return new Set(hostnames.map((h) => registrableDomain(h)).filter((d) => d !== null)).size;
+}
+
+/**
  * Decide what a scrub removes besides history. Pure: the caller passes
  * whether the permission is granted. Without it, nothing is removed and the
  * requested types are listed as skipped. Cookies are not removed for a

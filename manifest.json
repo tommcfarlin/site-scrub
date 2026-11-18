@@ -3,6 +3,8 @@
   "name": "Site Scrub",
   "version": "1.0.0",
   "description": "One-click scrub of selected sites from your browsing history. 🧽",
+  "minimum_chrome_version": "102",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2XLlJWOL8MBsIAvuYBmm+eUXv21CRtb5Ropr+TsqpIHL6pBJVzPIXDLRbo9A0g60+MjVTjDI0mRdWp9qwoG8FMUPbSUTMamkCW/HDPkJVcNlFusR5Eex5p//Z2KI3n7QL09kUIGSAJyEy7IOyXG0pYmDj1xw0muQt7j/z45xhTYDpo57Q+6ZLcO2Ldo68OMkBJrT2NR9iWLs0gL2zUJ0EKx22kudnSFU+qi8xlyjaTPBzjqESnVbt0HfZfRNfqcZwutSG9m8pDO5hzmfthEhQmuRGGsyuP4bCc3gp960yNJTZ5rCyIH2ZmmJJ1bk9upEsqkTl+tM1xtC/tzGRMrpGQIDAQAB",
   "permissions": ["history", "storage", "scripting", "activeTab", "notifications", "alarms"],
   "optional_permissions": ["browsingData"],
   "background": {

@@ -6,7 +6,7 @@ This note records the design decisions behind 🧽 Site Scrub and the limits tha
 
 | File | Responsibility |
 |------|----------------|
-| `manifest.json` | MV3 manifest: permissions, optional `browsingData`, action (no popup), options page, service worker |
+| `manifest.json` | MV3 manifest: permissions, optional `browsingData`, action (no popup), options page, service worker, the fixed `key` (one extension id for every install), and `minimum_chrome_version` 102 (for `storage.session`). |
 | `background.js` | Service worker: toolbar click, confirm, delete, indicator, the notification fallback and its durable handlers, and the update-check listeners. |
 | `lib.js` | Hostname parsing (`hostnameFromUrl`) and the single history read (`searchAllHistory`). No `chrome.*` use at module load. |
 | `domains.js` | `registrableDomain`: the public suffix plus one label, using `psl-data.js`. |
@@ -33,7 +33,7 @@ History is grouped by registrable domain: the public suffix plus one label. `new
 
 The user picks domains, not hostnames. A picked domain covers every subdomain under it.
 
-**Keep.** The `kept` setting lists hostnames to protect. A kept host protects itself and all hosts under it. Keep always wins over the domain switch. `isScrubbed` applies this rule for both the scrub and the counts in settings.
+**Keep.** The `kept` setting lists hostnames to protect. A kept host protects itself and all hosts under it. Keep always wins over the domain switch. `isScrubbed` in `match.js` applies this rule for the scrub. `isKept` and `domainView` in `options-model.js` apply the same rule for the counts in settings.
 
 ## Key design decision: the in-page injection model
 
@@ -65,9 +65,15 @@ page can't auto-confirm), and it fails closed. But a page can still remove the
 host node (which simply cancels). The scope of a purge is never page-controlled
 — it comes from the saved selection in the worker.
 
-## Data flow (one scan per action)
+## Data flow (one scan for the confirm, one re-check after it)
 
-A toolbar click reads history once (`searchAllHistory`) and reuses that array for first-run defaults, matching (`collectMatches`), counts, and the confirm text. Deletion runs in bounded batches (`deleteInChunks`) so a large scrub does not fire thousands of concurrent `deleteUrl` calls.
+A toolbar click reads history once (`searchAllHistory`) and reuses that array for matching (`collectMatches`), counts, and the confirm text. The first-run defaults come from `settings.js` (an absent `domains` key), not from history.
+
+**The confirm is binding.** The confirm records what it showed: the number of history items, the data types it named, and the `domains` and `kept` it was built from (in memory for the in-page dialog, in the `pendingPurge:<notificationId>` session key for the notification). After Scrub, `recheck` reads history and settings again. It matches only domains that were confirmed and are still on, and honors Keep entries from both. If the item count or the data types differ from the confirm, nothing is deleted and a notification says "Something changed while you were deciding. Click the sponge again to review." If nothing matches any more, it says "You have no sites to scrub." So a scrub never removes more, or other kinds of data, than the user agreed to.
+
+The notification's pending record is written before the notification is created (with an id chosen in advance), so an instant Scrub click finds it. Each notification has its own session key, so records never overwrite each other.
+
+Deletion runs in bounded batches (`deleteInChunks`) so a large scrub does not fire thousands of concurrent `deleteUrl` calls.
 
 ## Permissions (least privilege)
 
@@ -84,6 +90,8 @@ A toolbar click reads history once (`searchAllHistory`) and reuses that array fo
 
 `updates.js` runs from a daily `chrome.alarms` alarm. It fetches `https://pressware.co/extensions/site-scrub/version.json`, which holds `{"version":"x.y.z"}`, with `cache: "no-store"` and `credentials: "omit"`. It sends no identifier. Any failure is silent. A newer version is saved as `latestVersion`. The toolbar badge and the settings banner both read it.
 
+**A fixed extension id.** A cross-origin fetch from the service worker sends `Origin: chrome-extension://<id>`. For an unpacked extension without a manifest `key`, Chrome makes the id from the path of the install folder, so each user would have a different id that stays the same every day: an identifier in the server logs. So `manifest.json` has a fixed `key` (a public key only; the private key was discarded, because unpacked and zip installs do not need it). Every install has the same id, `okelcjddfojjpngggcankijeagakaegf`. The daily request then shows only that shared id and the user's IP address, nothing that identifies the user. A side effect: settings stay when the user moves the folder, because they are stored under the id.
+
 The fetch needs no host permission. The service worker makes a plain cross-origin read, and the server allows it with an `Access-Control-Allow-Origin` header. If the server stops sending that header, the check fails silently and no update shows. The request carries no user data. When the user turns the check off, no request is made and the badge clears. The banner has a Later button, which saves `dismissedVersion` and hides the banner until a still newer version appears.
 
 Nothing downloads or installs code. The banner links to the download page, and the user replaces the folder by hand.
@@ -99,13 +107,16 @@ Nothing downloads or installs code. The banner links to the download page, and t
 - **"Items" = distinct URLs per hostname**, not per-visit rows as shown in
   `brave://history`. Consistent internally; a modeling choice.
 - **Matching is by registrable domain.** Turning on `facebook.com` scrubs `m.facebook.com` too. Use Keep to protect a subdomain.
-- **Mid-purge history changes** are tolerated (`deleteUrl` is idempotent), so the
-  reported count can slightly exceed what was actually present.
+- **History that changes during the deletion itself** (after the re-check) is
+  tolerated (`deleteUrl` is idempotent), so the reported count can slightly
+  exceed what was actually present. Changes while the confirm is open abort the scrub.
+- **Sites in messages are registrable domains** (`countSites`), the same unit as
+  the settings page: `facebook.com` and `m.facebook.com` are one site.
 
 ## Testing
 
-- **Unit** (`test/*.test.js`): hostnames, public suffix lookup, matching and grouping with Keep, settings storage and sanitizing, site data planning, version compare, the update check, the settings view logic, and the packaging rules.
-- **Integration** (`integration.test.js`): the worker flow against a fake `chrome`: scrub scope, cancel, empty selection, no match, first-run defaults, the notification fallback, partial failure, and the re-entrancy guard.
+- **Unit** (`test/*.test.js`): hostnames, public suffix lookup, matching and grouping with Keep, settings storage and sanitizing, site data planning, version compare, the update check, the settings view logic, the packaging rules, and the manifest (`manifest.test.js`: the fixed key gives the expected id).
+- **Integration** (`integration.test.js`): the worker flow against a fake `chrome`: scrub scope, cancel, empty selection, no match, first-run defaults, the notification fallback, partial failure, the re-entrancy guard, and the re-check after the confirm (new history, a new Keep, a changed permission or data type, a domain turned off, one pending key per notification).
 - **End-to-end** (`e2e/`, Playwright): the settings page in real Chromium with the extension loaded and history seeded through the service worker. One test builds the zip, unpacks it, loads the unpacked copy, and opens the settings page.
 - **Manual**: browser-bound behavior (real injection, notifications, overlay, keyboard and screen-reader use) per the checklist in `README.md`.
 

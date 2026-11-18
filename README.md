@@ -9,12 +9,12 @@ A Brave and Chrome (Manifest V3) extension that scrubs the sites you pick from y
 - **Keep.** Open a row to see its subdomains. Use **Keep** on a subdomain to protect it. Keep wins over the domain switch, and a kept host also keeps everything under it.
 - **First-run defaults.** `facebook.com`, `reddit.com`, `linkedin.com`, `x.com`, and `twitter.com` start turned on.
 - **One-click scrub.** Click the 🧽 in the toolbar. A confirm box appears in the page. Press **Scrub** and the matching history is removed for good. A 🧽 fades in and out when it is done.
-- **Advanced options.** Open **Advanced** on the settings page to also remove cookies, cached files, and site storage for the scrubbed sites. History is always removed. Your browser asks for the extra permission the first time you turn one of these on. Cookies are skipped for a domain that has a kept subdomain, because the browser clears cookies for a whole domain at once.
+- **Advanced options.** Open **Advanced** on the settings page to also remove cookies, cached files, and site storage for the scrubbed sites. History is always removed. Removing cookies or site storage can sign you out of those sites. Your browser asks for the extra permission the first time you turn one of these on. Cookies are skipped for a domain that has a kept subdomain, because the browser clears cookies for a whole domain at once.
 - **Update check.** Once a day Site Scrub reads one version number from `pressware.co`. When a newer version exists, the toolbar icon shows a dot and the settings page shows a banner. Turn this off in **Advanced** → **Check for updates**.
 
 ## Install from the zip
 
-1. Download `site-scrub-<version>.zip` from the GitHub release page.
+1. Download `site-scrub-<version>.zip` from the Site Scrub page on pressware.co (<https://pressware.co/extensions/site-scrub/>). The same zip is also on the GitHub release page.
 2. Unzip it. Keep the folder somewhere permanent. The browser reads the extension from that folder every time it starts.
 3. Open `brave://extensions` (or `chrome://extensions`).
 4. Turn on **Developer mode** (top-right switch).
@@ -26,17 +26,17 @@ A Brave and Chrome (Manifest V3) extension that scrubs the sites you pick from y
 
 When the banner or the toolbar dot appears:
 
-1. Download the new zip from the GitHub release page.
+1. Download the new zip from the Site Scrub page on pressware.co (the banner links to it). The same zip is also on the GitHub release page.
 2. Unzip it over the old folder, or into a new folder.
-3. Open `brave://extensions` and click the reload button on Site Scrub. If you used a new folder, remove the old copy and load the new folder.
+3. Open `brave://extensions`. If you used the old folder, click the reload button on Site Scrub. If you used a new folder, click **Load unpacked** and choose the new folder. It replaces the old copy. Then you can delete the old folder.
 
-Your settings stay. The browser keeps them apart from the extension folder as long as the extension keeps the same id. A folder in a new location has a new id, so use the same folder when you can.
+Your settings stay. The browser keeps them apart from the extension folder, under the extension id. Every copy of Site Scrub has the same id (the manifest sets it), so the settings stay even when you move the folder. Do not click **Remove** on Site Scrub: that deletes its settings.
 
 ## Privacy
 
 - Site Scrub stores your settings in `chrome.storage.local`, on your computer: the sites you picked, your Keep list, the Advanced switches, the update-check switch, and the newest version number it saw.
 - Your history never leaves the browser.
-- The only network request is the daily update check. It is a plain read of `https://pressware.co/extensions/site-scrub/version.json`. It carries no cookies and no identifier, and it sends nothing about you. If you turn the check off, Site Scrub makes no network request at all.
+- The only network request is the daily update check. It is a plain read of `https://pressware.co/extensions/site-scrub/version.json`. It carries no cookies and no identifier, and it sends nothing about you. The browser names the extension id in the request, and that id is the same for every copy of Site Scrub, so it does not identify you. Like any web request, the version check shows your IP address to the web host. If you turn the check off, Site Scrub makes no network request at all.
 - Site Scrub asks for no access to the sites you visit. It draws on the page you are on only when you click the icon.
 
 ## Development

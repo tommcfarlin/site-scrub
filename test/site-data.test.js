@@ -25,7 +25,7 @@ const fake = { removeCalls: [], requestCalls: [], containsResult: true, requestR
   },
 };
 
-const { originsFor, ensurePermission, hasPermission, removeSiteData, planSiteData, removalPhrase, dataPhrase } = await import("../site-data.js");
+const { originsFor, ensurePermission, hasPermission, removeSiteData, planSiteData, removalPhrase, dataPhrase, countSites } = await import("../site-data.js");
 
 const OFF = { cookies: false, cache: false, storage: false };
 
@@ -204,4 +204,12 @@ test("planSiteData with no permission removes nothing and lists the skipped type
   assert.deepEqual(plan.types, OFF);
   assert.deepEqual(plan.skipped, { cookies: true, cache: true, storage: false });
   assert.equal(plan.keptCookieSites, 0);
+});
+
+test("countSites counts registrable domains, not hostnames", () => {
+  assert.equal(countSites(["facebook.com", "m.facebook.com", "work.facebook.com"]), 1);
+  assert.equal(countSites(["facebook.com", "www.reddit.com", "old.reddit.com"]), 2);
+  assert.equal(countSites(["news.bbc.co.uk", "www.bbc.co.uk"]), 1);
+  assert.equal(countSites(["127.0.0.1", "localhost"]), 0, "hosts without a registrable domain are skipped");
+  assert.equal(countSites([]), 0);
 });
