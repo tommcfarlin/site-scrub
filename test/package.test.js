@@ -6,12 +6,13 @@ import { selectFiles, findMissingReferences, findUnshippedImports } from "../scr
 const ROOT = [
   "background.js", "playwright.config.js", "manifest.json", "options.html", "options.css",
   "package.json", "README.md", "tsconfig.json", ".gitignore", "psl-data.js", "ARCHITECTURE.md",
+  "INSTALL.txt", "LICENSE",
 ];
 
 test("selectFiles keeps root js files, manifest, options page, and icons", () => {
   const files = selectFiles(ROOT, ["icon16.png", "icon128.png"]);
   assert.deepEqual(files, [
-    "background.js", "icons/icon128.png", "icons/icon16.png",
+    "INSTALL.txt", "LICENSE", "background.js", "icons/icon128.png", "icons/icon16.png",
     "manifest.json", "options.css", "options.html", "psl-data.js",
   ]);
 });

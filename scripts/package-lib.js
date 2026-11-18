@@ -6,12 +6,12 @@
 const NOT_SHIPPED_JS = new Set(["playwright.config.js"]);
 
 /** Root files that always ship besides the JavaScript files. */
-const SHIPPED_STATIC = ["manifest.json", "options.html", "options.css"];
+const SHIPPED_STATIC = ["manifest.json", "options.html", "options.css", "INSTALL.txt", "LICENSE"];
 
 /**
  * The files the zip holds, as sorted zip paths.
  * Rule: root *.js except playwright.config.js, plus manifest.json,
- * options.html, options.css, and everything in icons/.
+ * options.html, options.css, INSTALL.txt, LICENSE, and everything in icons/.
  * @param {string[]} rootFiles File names at the repository root.
  * @param {string[]} iconFiles File names inside icons/.
  * @returns {string[]}
