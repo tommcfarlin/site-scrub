@@ -4,46 +4,78 @@
 
 import { searchAllHistory } from "./lib.js";
 import { collectMatches } from "./match.js";
-import { loadSettings } from "./settings.js";
-import { removeSiteData, removalPhrase, dataPhrase } from "./site-data.js";
+import { loadSettings, sanitize } from "./settings.js";
+import { removeSiteData, planSiteData, hasPermission, removalPhrase, dataPhrase } from "./site-data.js";
 import { dialogInPage, spongeSplashInPage } from "./injected-ui.js";
 
 const ICON = "icons/icon128.png";
 
 // storage.session key holding purges awaiting a notification-button decision,
-// as { [notificationId]: { domains, kept } }. Persisted (not in-memory) so the
+// as { [notificationId]: { domains, kept, alsoRemove } }. Persisted (not in-memory) so the
 // decision survives service-worker eviction while the notification is open.
 const PENDING_KEY = "pendingPurge";
 
-/** @typedef {{ domains: string[], kept: string[] }} PendingPurge */
 /** @typedef {import("./settings.js").Settings["alsoRemove"]} AlsoRemove */
+/** @typedef {import("./site-data.js").SiteDataPlan} SiteDataPlan */
+/** @typedef {{ domains: string[], kept: string[], alsoRemove: AlsoRemove }} PendingPurge */
 
 /** @param {number} n @param {string} word */
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** @param {string} text */
+const capitalize = (text) => text[0].toUpperCase() + text.slice(1);
+
+// Extra sentences shared by the confirm and the result: data types skipped
+// for lack of permission, and cookies kept for domains with a kept subdomain.
+/**
+ * @param {AlsoRemove} skipped
+ * @param {number} keptCookieSites
+ */
+function dataNotes(skipped, keptCookieSites) {
+  let out = "";
+  const skippedText = dataPhrase(skipped);
+  if (skippedText) out += ` ${capitalize(skippedText)} are skipped because the permission is off.`;
+  if (keptCookieSites) out += ` Cookies are kept for ${plural(keptCookieSites, "site")} with a kept subdomain.`;
+  return out;
+}
 
 // "Permanently remove history and cookies from 3 sites (12 history items)."
 // The count is always the number of history items.
 /**
  * @param {number} count
- * @param {number} sites
- * @param {AlsoRemove} types
+ * @param {SiteDataPlan} plan
  */
-function confirmMessage(count, sites, types) {
-  return `Permanently remove ${removalPhrase(types)} from ${plural(sites, "site")} (${plural(count, "history item")}).`;
+function confirmMessage(count, plan) {
+  return `Permanently remove ${removalPhrase(plan.types)} from ${plural(plan.hosts.length, "site")} ` +
+    `(${plural(count, "history item")}).${dataNotes(plan.skipped, plan.keptCookieSites)}`;
+}
+
+// Plan the site-data part of a scrub: unique matched hosts, the permission
+// as it is now, and Keep. Used for both the confirm text and the removal.
+/**
+ * @param {{ url: string, host: string }[]} matches
+ * @param {string[]} kept
+ * @param {AlsoRemove} requested
+ * @returns {Promise<SiteDataPlan>}
+ */
+async function planFor(matches, kept, requested) {
+  const hosts = [...new Set(matches.map((m) => m.host))];
+  const anyOn = requested.cookies || requested.cache || requested.storage;
+  const granted = anyOn ? await hasPermission() : true;
+  return planSiteData(hosts, kept, requested, granted);
 }
 
 // ---- dialog definitions --------------------------------------------------
 
 /**
  * @param {number} count
- * @param {number} sites
- * @param {AlsoRemove} types
+ * @param {SiteDataPlan} plan
  * @returns {import("./injected-ui.js").DialogOptions}
  */
-function confirmOpts(count, sites, types) {
+function confirmOpts(count, plan) {
   return {
     title: "🧽 Scrub history?",
-    message: confirmMessage(count, sites, types),
+    message: confirmMessage(count, plan),
     dismissValue: false,
     autofocusIndex: 0, // Cancel — confirming an irreversible action is opt-in
     buttons: [
@@ -103,17 +135,16 @@ function notify(title, message) {
 /**
  * @param {PendingPurge} pending
  * @param {number} count
- * @param {number} sites
- * @param {AlsoRemove} types
+ * @param {SiteDataPlan} plan
  */
-async function requestNotificationConfirm(pending, count, sites, types) {
+async function requestNotificationConfirm(pending, count, plan) {
   const id = await new Promise((res) =>
     chrome.notifications.create(
       {
         type: "basic",
         iconUrl: ICON,
         title: "🧽 Scrub history?",
-        message: confirmMessage(count, sites, types),
+        message: confirmMessage(count, plan),
         buttons: [{ title: "Scrub" }, { title: "Cancel" }],
         requireInteraction: true,
       },
@@ -162,34 +193,43 @@ async function deleteInChunks(urls, size = 200) {
 }
 
 // Delete every given URL, tolerating individual failures, then remove the
-// site data types turned on in settings (read now, at scrub time) for the
-// matched hostnames, then show the indicator (sponge overlay when a tab is
-// injectable, else a notification). The message reports the number of
-// history items actually removed; a site-data failure adds one sentence.
+// planned site data for the matched hostnames, then show the indicator
+// (sponge overlay when a tab is injectable, else a notification). The plan is
+// the one the confirm described, so the text and the removal match. The
+// message names only what was actually removed and reports the number of
+// history items removed. Skipped types and site-data failures add a sentence.
 /**
  * @param {{ url: string, host: string }[]} matches
+ * @param {SiteDataPlan} plan
  * @param {number | null} tabId
  */
-async function performPurge(matches, tabId) {
+async function performPurge(matches, plan, tabId) {
   const urls = matches.map((m) => m.url);
-  const hosts = [...new Set(matches.map((m) => m.host))];
   const removed = await deleteInChunks(urls);
   const failed = urls.length - removed;
 
-  let types = (await loadSettings()).alsoRemove;
+  /** @type {AlsoRemove} */
+  let done = { cookies: false, cache: false, storage: false };
   let dataError = "";
   try {
-    await removeSiteData(hosts, types);
+    done = (await removeSiteData(plan.hosts, plan.types, plan.cookieHosts)).removed;
   } catch (e) {
     console.error("Site Scrub: removing site data failed", e);
-    const data = dataPhrase(types);
-    dataError = ` ${data[0].toUpperCase()}${data.slice(1)} could not be removed.`;
-    types = { cookies: false, cache: false, storage: false };
+    dataError = ` ${capitalize(dataPhrase(plan.types))} could not be removed.`;
   }
+  // Planned types that were not removed without an error: the permission was
+  // turned off after the confirm.
+  /** @type {AlsoRemove} */
+  const skipped = dataError ? plan.skipped : {
+    cookies: plan.skipped.cookies || (plan.types.cookies && !done.cookies),
+    cache: plan.skipped.cache || (plan.types.cache && !done.cache),
+    storage: plan.skipped.storage || (plan.types.storage && !done.storage),
+  };
 
   const tail = failed ? `, ${failed} could not be removed` : "";
   const message =
-    `Removed ${removalPhrase(types)} from ${plural(hosts.length, "site")} (${plural(removed, "history item")}${tail}).${dataError}`;
+    `Removed ${removalPhrase(done)} from ${plural(plan.hosts.length, "site")} (${plural(removed, "history item")}${tail}).` +
+    `${dataError}${dataNotes(skipped, plan.keptCookieSites)}`;
 
   // Sponge overlay (with a live-region announcement) when a tab is injectable,
   // else a system notification.
@@ -207,13 +247,16 @@ chrome.notifications.onButtonClicked.addListener(async (id, buttonIndex) => {
     chrome.notifications.clear(id);
     if (buttonIndex !== 0) return; // 0 = Scrub, 1 = Cancel
 
+    const kept = Array.isArray(pending.kept) ? pending.kept : [];
     const matches = collectMatches(
       await searchAllHistory(),
       new Set(Array.isArray(pending.domains) ? pending.domains : []),
-      new Set(Array.isArray(pending.kept) ? pending.kept : [])
+      new Set(kept)
     );
     if (matches.length === 0) return;
-    await performPurge(matches, null); // internal page → notification
+    // The types read at click time, stored with the pending record.
+    const plan = await planFor(matches, kept, sanitize({ alsoRemove: pending.alsoRemove }).alsoRemove);
+    await performPurge(matches, plan, null); // internal page → notification
   } catch (e) {
     console.error("Site Scrub: notification purge failed", e);
     notify("🧽 Site Scrub", "Something went wrong completing the scrub.");
@@ -254,22 +297,25 @@ async function handleClick(tab) {
   }
 
   const count = matches.length;
-  const sites = new Set(matches.map((m) => m.host)).size;
-  const types = settings.alsoRemove;
+  const plan = await planFor(matches, settings.kept, settings.alsoRemove);
 
   // Prefer an in-page confirm. If it can be injected, it is authoritative for
   // this click (confirmed or cancelled) and we are done.
   if (tab?.id != null) {
-    const inj = await tryInject(tab.id, dialogInPage, [confirmOpts(count, sites, types)]);
+    const inj = await tryInject(tab.id, dialogInPage, [confirmOpts(count, plan)]);
     if (inj.ok) {
-      if (inj.result === true) await performPurge(matches, tab.id);
+      if (inj.result === true) await performPurge(matches, plan, tab.id);
       return;
     }
   }
 
   // Fallback for internal pages: a notification confirm resolved by the
   // durable top-level handlers.
-  await requestNotificationConfirm({ domains: [...domains], kept: [...kept] }, count, sites, types);
+  await requestNotificationConfirm(
+    { domains: [...domains], kept: [...kept], alsoRemove: settings.alsoRemove },
+    count,
+    plan
+  );
 }
 
 chrome.action.onClicked.addListener(async (tab) => {

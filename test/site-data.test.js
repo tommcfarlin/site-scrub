@@ -25,7 +25,7 @@ const fake = { removeCalls: [], requestCalls: [], containsResult: true, requestR
   },
 };
 
-const { originsFor, ensurePermission, removeSiteData, removalPhrase, dataPhrase } = await import("../site-data.js");
+const { originsFor, ensurePermission, hasPermission, removeSiteData, planSiteData, removalPhrase, dataPhrase } = await import("../site-data.js");
 
 const OFF = { cookies: false, cache: false, storage: false };
 
@@ -128,4 +128,80 @@ test("dataPhrase names only the active data types", () => {
   assert.equal(dataPhrase({ ...OFF, cache: true }), "cached files");
   assert.equal(dataPhrase({ ...OFF, cache: true, storage: true }), "cached files and site storage");
   assert.equal(dataPhrase({ cookies: true, cache: true, storage: true }), "cookies, cached files, and site storage");
+});
+
+// ---- fix round 1: status, permission, and Keep-aware cookie scope ---------
+
+const ALL = { cookies: true, cache: true, storage: true };
+
+test("hasPermission reflects chrome.permissions.contains", async () => {
+  assert.equal(await hasPermission(), true);
+  fake.containsResult = false;
+  assert.equal(await hasPermission(), false);
+});
+
+test("removeSiteData reports the types it removed", async () => {
+  assert.deepEqual(await removeSiteData(["a.com"], { ...OFF, cookies: true, storage: true }), {
+    removed: { cookies: true, cache: false, storage: true },
+  });
+});
+
+test("removeSiteData reports nothing removed when the permission is missing", async () => {
+  fake.containsResult = false;
+  assert.deepEqual(await removeSiteData(["a.com"], ALL), { removed: OFF });
+});
+
+test("removeSiteData reports nothing removed when all types are off", async () => {
+  assert.deepEqual(await removeSiteData(["a.com"], OFF), { removed: OFF });
+});
+
+test("removeSiteData removes cookies only for cookieHosts and other types for all hosts", async () => {
+  const result = await removeSiteData(["a.com", "b.com"], { ...OFF, cookies: true, cache: true }, ["b.com"]);
+  assert.deepEqual(fake.removeCalls, [
+    [{ origins: ["https://b.com", "http://b.com"] }, { cookies: true }],
+    [{ origins: ["https://a.com", "http://a.com", "https://b.com", "http://b.com"] }, { cache: true }],
+  ]);
+  assert.deepEqual(result, { removed: { cookies: true, cache: true, storage: false } });
+});
+
+test("removeSiteData with empty cookieHosts removes no cookies", async () => {
+  const result = await removeSiteData(["a.com"], { ...OFF, cookies: true, cache: true }, []);
+  assert.deepEqual(fake.removeCalls, [[{ origins: ["https://a.com", "http://a.com"] }, { cache: true }]]);
+  assert.deepEqual(result, { removed: { cookies: false, cache: true, storage: false } });
+});
+
+test("planSiteData skips cookies for a domain with a kept subdomain", () => {
+  const plan = planSiteData(
+    ["facebook.com", "m.facebook.com", "www.reddit.com"],
+    ["work.facebook.com"],
+    { ...OFF, cookies: true, cache: true },
+    true
+  );
+  assert.deepEqual(plan, {
+    hosts: ["facebook.com", "m.facebook.com", "www.reddit.com"],
+    cookieHosts: ["www.reddit.com"],
+    types: { cookies: true, cache: true, storage: false },
+    skipped: OFF,
+    keptCookieSites: 1,
+  });
+});
+
+test("planSiteData turns cookies off when every matched domain has a kept subdomain", () => {
+  const plan = planSiteData(["facebook.com"], ["work.facebook.com"], { ...OFF, cookies: true }, true);
+  assert.deepEqual(plan.types, OFF);
+  assert.deepEqual(plan.cookieHosts, []);
+  assert.equal(plan.keptCookieSites, 1);
+});
+
+test("planSiteData without kept entries removes cookies for every host", () => {
+  const plan = planSiteData(["facebook.com", "m.facebook.com"], [], { ...OFF, cookies: true }, true);
+  assert.deepEqual(plan.cookieHosts, ["facebook.com", "m.facebook.com"]);
+  assert.equal(plan.keptCookieSites, 0);
+});
+
+test("planSiteData with no permission removes nothing and lists the skipped types", () => {
+  const plan = planSiteData(["facebook.com"], ["work.facebook.com"], { ...OFF, cookies: true, cache: true }, false);
+  assert.deepEqual(plan.types, OFF);
+  assert.deepEqual(plan.skipped, { cookies: true, cache: true, storage: false });
+  assert.equal(plan.keptCookieSites, 0);
 });

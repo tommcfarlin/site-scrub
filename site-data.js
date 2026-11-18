@@ -2,9 +2,24 @@
 // Optional removal of cookies, cached files, and site storage for the sites a
 // scrub matched. Uses chrome.browsingData with an origins filter, which needs
 // the optional "browsingData" permission. Chrome clears cookies for the whole
-// registrable domain of each origin (parent-domain and sibling cookies too).
+// registrable domain of each origin (parent-domain and sibling cookies too),
+// so planSiteData leaves cookies alone for a domain with a kept subdomain.
+
+import { registrableDomain } from "./domains.js";
 
 /** @typedef {import("./settings.js").Settings["alsoRemove"]} AlsoRemove */
+/**
+ * @typedef {{
+ *   hosts: string[],
+ *   cookieHosts: string[],
+ *   types: AlsoRemove,
+ *   skipped: AlsoRemove,
+ *   keptCookieSites: number
+ * }} SiteDataPlan
+ */
+
+/** @returns {AlsoRemove} */
+const none = () => ({ cookies: false, cache: false, storage: false });
 
 /** @type {chrome.permissions.Permissions} */
 const PERMISSION = { permissions: ["browsingData"] };
@@ -38,6 +53,53 @@ export async function ensurePermission() {
 }
 
 /**
+ * True when the optional browsingData permission is granted now.
+ * @returns {Promise<boolean>}
+ */
+export async function hasPermission() {
+  try {
+    return (await chrome.permissions.contains(PERMISSION)) === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decide what a scrub removes besides history. Pure: the caller passes
+ * whether the permission is granted. Without it, nothing is removed and the
+ * requested types are listed as skipped. Cookies are not removed for a
+ * registrable domain that has a kept subdomain, because Chrome clears cookies
+ * for the whole registrable domain (Keep always wins).
+ * @param {string[]} hosts Unique matched hostnames.
+ * @param {string[]} kept Kept hostnames from settings.
+ * @param {AlsoRemove} requested Types turned on in settings.
+ * @param {boolean} granted
+ * @returns {SiteDataPlan}
+ */
+export function planSiteData(hosts, kept, requested, granted) {
+  if (!granted) {
+    return { hosts, cookieHosts: [], types: none(), skipped: { ...requested }, keptCookieSites: 0 };
+  }
+  /** @type {string[]} */
+  let cookieHosts = [];
+  let keptCookieSites = 0;
+  if (requested.cookies) {
+    const keptDomains = new Set(kept.map((k) => registrableDomain(k)).filter(Boolean));
+    cookieHosts = hosts.filter((h) => !keptDomains.has(registrableDomain(h)));
+    keptCookieSites = new Set(
+      hosts.map((h) => registrableDomain(h)).filter((d) => d !== null && keptDomains.has(d))
+    ).size;
+  }
+  return {
+    hosts,
+    cookieHosts,
+    types: { ...requested, cookies: requested.cookies && cookieHosts.length > 0 },
+    skipped: none(),
+    keptCookieSites,
+  };
+}
+
+/**
  * @param {AlsoRemove} types
  * @returns {chrome.browsingData.DataTypeSet}
  */
@@ -56,19 +118,46 @@ function dataTypesFor(types) {
 }
 
 /**
- * Remove the active data types for the given hostnames. Makes no call when no
- * type is on, no hostname is given, or the permission is missing. Rejects if
+ * @param {string[]} hostnames
+ * @param {chrome.browsingData.DataTypeSet} dataToRemove
+ * @returns {Promise<boolean>} true when a call was made
+ */
+async function removeFor(hostnames, dataToRemove) {
+  const origins = originsFor(hostnames);
+  if (Object.keys(dataToRemove).length === 0 || origins.length === 0) return false;
+  await chrome.browsingData.remove({ origins: /** @type {[string, ...string[]]} */ (origins) }, dataToRemove);
+  return true;
+}
+
+/**
+ * Remove the active data types for the given hostnames and report what was
+ * removed. Cookies go only to `cookieHosts` (default: all hostnames). Makes no
+ * call when no type is on, no hostname is given, or the permission is missing
+ * (then every type is reported as not removed). Rejects if
  * chrome.browsingData.remove fails, so the caller can report it.
  * @param {string[]} hostnames
  * @param {AlsoRemove} types
- * @returns {Promise<void>}
+ * @param {string[]} [cookieHosts]
+ * @returns {Promise<{ removed: AlsoRemove }>}
  */
-export async function removeSiteData(hostnames, types) {
-  const dataToRemove = dataTypesFor(types);
-  const origins = originsFor(hostnames);
-  if (Object.keys(dataToRemove).length === 0 || origins.length === 0) return;
-  if (!(await chrome.permissions.contains(PERMISSION))) return;
-  await chrome.browsingData.remove({ origins: /** @type {[string, ...string[]]} */ (origins) }, dataToRemove);
+export async function removeSiteData(hostnames, types, cookieHosts = hostnames) {
+  const removed = none();
+  if (!types.cookies && !types.cache && !types.storage) return { removed };
+  if (hostnames.length === 0 || !(await hasPermission())) return { removed };
+
+  const cookieSet = new Set(cookieHosts);
+  const sameHosts = cookieSet.size === new Set(hostnames).size && hostnames.every((h) => cookieSet.has(h));
+  if (!types.cookies || sameHosts) {
+    if (await removeFor(hostnames, dataTypesFor(types))) Object.assign(removed, types);
+    return { removed };
+  }
+  if (await removeFor(cookieHosts, { cookies: true })) removed.cookies = true;
+  const rest = { ...types, cookies: false };
+  if (await removeFor(hostnames, dataTypesFor(rest))) {
+    removed.cache = rest.cache;
+    removed.storage = rest.storage;
+  }
+  return { removed };
 }
 
 /**
